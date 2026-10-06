@@ -5,3 +5,4 @@ node_modules/
 *.webm
 tests/reference/*
 !tests/reference/README.md
+__pycache__/

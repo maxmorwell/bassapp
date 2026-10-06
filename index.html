@@ -1,0 +1,351 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Bass Shake Spike</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,500..800&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one narrow phone-first column of numbered steps (the real order of use), readouts in mono. */
+:root {
+  --bg: #f3f2ef;
+  --panel: #ffffff;
+  --fg: #1b1c20;
+  --muted: #62646c;
+  --line: #d9d8d3;
+  --accent: #d6401f;      /* speaker-cone orange-red */
+  --accent-fg: #ffffff;
+  --ok: #1f7a4d;
+  --bad: #b3261e;
+  --display: "Archivo", "Arial Narrow", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --body: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #141519; --panel: #1d1f24; --fg: #ecebe7; --muted: #9a9ca4; --line: #30323a;
+  --accent: #ff6a45; --accent-fg: #141519; --ok: #5cc98f; --bad: #ff8a80; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #141519; --panel: #1d1f24; --fg: #ecebe7; --muted: #9a9ca4; --line: #30323a;
+  --accent: #ff6a45; --accent-fg: #141519; --ok: #5cc98f; --bad: #ff8a80; color-scheme: dark }
+
+body { background: var(--bg); color: var(--fg); font-family: var(--body); font-size: 15px; line-height: 1.45; }
+.wrap { max-width: 560px; margin: 0 auto; padding-inline: 16px; padding-block: 20px 48px; display: grid; gap: 14px; }
+header { display: grid; gap: 4px; }
+h1 { font-family: var(--display); font-stretch: 80%; font-weight: 800; font-size: 2rem; line-height: 1; margin: 0; letter-spacing: -0.01em; text-wrap: balance; }
+.build { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+.lede { margin: 6px 0 0; color: var(--muted); max-width: 60ch; }
+section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; display: grid; gap: 10px; min-width: 0; }
+h2 { font-family: var(--display); font-stretch: 90%; font-weight: 700; font-size: 1.05rem; margin: 0; display: flex; gap: 8px; align-items: baseline; }
+h2 .n { font-family: var(--mono); font-size: 12px; color: var(--accent); font-weight: 500; }
+label.file { display: grid; gap: 6px; }
+input[type=file] { font: inherit; max-width: 100%; }
+dl { display: grid; grid-template-columns: max-content 1fr; gap: 3px 12px; margin: 0; font-family: var(--mono); font-size: 13px; }
+dt { color: var(--muted); }
+dd { margin: 0; min-width: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.ctl { display: grid; grid-template-columns: 7.5em 1fr 4em; gap: 8px; align-items: center; font-size: 14px; }
+.ctl output { font-family: var(--mono); font-size: 13px; text-align: right; font-variant-numeric: tabular-nums; }
+input[type=range] { width: 100%; accent-color: var(--accent); }
+button { font: 600 15px/1 var(--body); padding: 12px 16px; border-radius: 8px; border: 1px solid var(--accent); background: var(--accent); color: var(--accent-fg); cursor: pointer; }
+button.secondary { background: transparent; color: var(--fg); border-color: var(--line); }
+button:disabled { opacity: .4; cursor: not-allowed; }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+progress { width: 100%; height: 8px; accent-color: var(--accent); }
+.status { font-family: var(--mono); font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.status.ok { color: var(--ok); } .status.bad { color: var(--bad); }
+video { width: 100%; max-width: 100%; border-radius: 6px; background: #000; max-height: 70vh; }
+.pill { font-family: var(--mono); font-size: 12px; padding: 2px 8px; border-radius: 99px; border: 1px solid currentColor; }
+.pill.ok { color: var(--ok); } .pill.bad { color: var(--bad); } .pill.neutral { color: var(--muted); }
+textarea { width: 100%; box-sizing: border-box; min-height: 160px; font: 12px/1.4 var(--mono); background: var(--bg); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; padding: 8px; }
+.small { font-size: 13px; color: var(--muted); margin: 0; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+</head><body>
+<div class="wrap">
+  <header>
+    <h1>Bass Shake Spike</h1>
+    <div class="build" id="build"></div>
+    <p class="lede">Feasibility test: can this phone load a clip, shake it, render it and save it, all on the device? The shake is a fixed 120 BPM pulse, not driven by the audio yet.</p>
+  </header>
+
+  <section>
+    <h2><span class="n">1</span>Choose a clip</h2>
+    <label class="file"><span class="small">Your file stays on this device. Nothing is uploaded.</span>
+      <input type="file" id="file" accept="video/*,.mov,.mp4,.m4v,.webm">
+    </label>
+    <dl id="info"><dt>clip</dt><dd>none loaded</dd></dl>
+    <div class="row" id="support"></div>
+  </section>
+
+  <section>
+    <h2><span class="n">2</span>Shake settings</h2>
+    <div class="ctl"><label for="amp">Strength</label><input type="range" id="amp" min="0" max="100" value="60"><output id="ampOut">60</output></div>
+    <div class="ctl"><label for="bpm">Pulse (BPM)</label><input type="range" id="bpm" min="60" max="180" value="120"><output id="bpmOut">120</output></div>
+    <div class="ctl"><label for="pstart">Preview from</label><input type="range" id="pstart" min="0" max="0" step="0.1" value="0"><output id="pstartOut">0.0 s</output></div>
+    <label class="row small"><input type="checkbox" id="fullres"> Keep full resolution (otherwise long side capped at 1920 px)</label>
+  </section>
+
+  <section>
+    <h2><span class="n">3</span>Preview (3 seconds)</h2>
+    <p class="small">Rendered through exactly the same path as the export, then played.</p>
+    <div class="row"><button id="previewBtn" disabled>Render preview</button></div>
+    <progress id="previewProg" value="0" max="1" hidden></progress>
+    <div class="status" id="previewStatus"></div>
+    <video id="previewVid" controls playsinline hidden></video>
+  </section>
+
+  <section>
+    <h2><span class="n">4</span>Export and save</h2>
+    <div class="row"><button id="exportBtn" disabled>Export full video</button><button id="cancelBtn" class="secondary" hidden>Cancel</button></div>
+    <progress id="exportProg" value="0" max="1" hidden></progress>
+    <div class="status" id="exportStatus"></div>
+    <div class="row"><button id="saveBtn" class="secondary" hidden>Save video</button></div>
+    <div class="status" id="saveStatus"></div>
+  </section>
+
+  <section>
+    <h2><span class="n">5</span>Report back</h2>
+    <p class="small">Copy this and paste it into the chat. It records what happened, including any errors.</p>
+    <textarea id="log" readonly></textarea>
+    <div class="row"><button id="copyBtn" class="secondary">Copy report</button><span class="status" id="copyStatus"></span></div>
+  </section>
+</div>
+
+<script>
+// Classic script: works even if the library import below fails, so errors still reach the report.
+window.BUILD = "spike-0.1 · 2026-10-06 08:26";
+document.getElementById("build").textContent = "build " + window.BUILD;
+window.__log = [];
+window.log = function (msg) {
+  const line = "[" + (performance.now() / 1000).toFixed(2) + "s] " + msg;
+  window.__log.push(line);
+  const ta = document.getElementById("log");
+  ta.value = window.__log.join("\n");
+  ta.scrollTop = ta.scrollHeight;
+};
+log("build " + window.BUILD);
+log("UA " + navigator.userAgent);
+log("WebCodecs: VideoEncoder=" + (typeof VideoEncoder) + " VideoDecoder=" + (typeof VideoDecoder) + " AudioEncoder=" + (typeof AudioEncoder) + " AudioDecoder=" + (typeof AudioDecoder));
+window.addEventListener("error", e => log("ERROR " + (e.message || e)));
+window.addEventListener("unhandledrejection", e => log("REJECTION " + (e.reason && (e.reason.stack || e.reason.message) || e.reason)));
+document.getElementById("copyBtn").addEventListener("click", async () => {
+  const ta = document.getElementById("log"), st = document.getElementById("copyStatus");
+  try { await navigator.clipboard.writeText(ta.value); st.textContent = "Copied."; }
+  catch { ta.focus(); ta.select(); st.textContent = "Selected. Use Copy from the menu."; }
+});
+</script>
+
+<script type="module">
+let MB;
+try {
+  MB = await import("https://cdn.jsdelivr.net/npm/mediabunny@1.61.3/dist/bundles/mediabunny.min.mjs");
+  log("library loaded (mediabunny 1.61.3)");
+} catch (e) {
+  log("LIBRARY LOAD FAILED: " + (e && e.message));
+  document.getElementById("info").innerHTML = "<dt>error</dt><dd>The video library could not load. Copy the report below.</dd>";
+  throw e;
+}
+const { Input, Output, BlobSource, BufferTarget, Mp4OutputFormat, Conversion, ALL_FORMATS, canEncodeVideo, canEncodeAudio, QUALITY_HIGH } = MB;
+
+const $ = id => document.getElementById(id);
+const OVERSCAN = 1.045;          // shipped setting from VIDEO: 104.5 %
+const PREVIEW_LEN = 3;           // seconds
+let file = null, meta = null, outBlob = null, outName = "", running = null;
+
+// ---------- the fixed test shake (stand-in for the audio-driven model) ----------
+// Each beat: a damped 7.5 Hz cosine kick (starts at the peak, per VIDEO GOTCHAS), mostly vertical,
+// with a little sideways and rotation. Amplitude is a fraction of the overscan margin, so no black edges.
+function shakeAt(t, w, h, strength, bpm) {
+  const period = 60 / bpm;
+  const tau = ((t % period) + period) % period;
+  const env = Math.exp(-tau / 0.12);
+  const margin = Math.min(w, h) * (OVERSCAN - 1) / 2;     // px of slack each side
+  const A = margin * 0.9 * strength;
+  return {
+    dx: 0.35 * A * env * Math.cos(2 * Math.PI * 5 * tau + 1),
+    dy: A * env * Math.cos(2 * Math.PI * 7.5 * tau),
+    rot: (0.35 * strength) * Math.PI / 180 * env * Math.cos(2 * Math.PI * 7.5 * tau)
+  };
+}
+
+function even(n) { return Math.max(2, Math.round(n / 2) * 2); }
+function fmt(n, d = 2) { return Number.isFinite(n) ? n.toFixed(d) : "?"; }
+function mb(bytes) { return (bytes / 1048576).toFixed(1) + " MB"; }
+
+function outputSize(m) {
+  let w = m.width, h = m.height;
+  if (!$("fullres").checked) {
+    const s = Math.min(1, 1920 / Math.max(w, h));
+    w *= s; h *= s;
+  }
+  return { w: even(w), h: even(h) };
+}
+
+// ---------- load ----------
+$("file").addEventListener("change", async () => {
+  file = $("file").files[0];
+  outBlob = null; $("saveBtn").hidden = true; $("previewVid").hidden = true;
+  $("previewBtn").disabled = $("exportBtn").disabled = true;
+  if (!file) return;
+  log("file: " + file.name + " (" + mb(file.size) + ", type '" + file.type + "')");
+  const info = $("info"); info.innerHTML = "<dt>clip</dt><dd>reading…</dd>";
+  try {
+    const input = new Input({ source: new BlobSource(file), formats: ALL_FORMATS });
+    const fmtName = (await input.getFormat()).name;
+    const v = await input.getPrimaryVideoTrack();
+    const a = await input.getPrimaryAudioTrack();
+    const dur = await input.computeDuration();
+    if (!v) throw new Error("no video track found");
+    const stats = await v.computePacketStats(120);
+    const vDec = await v.canDecode();
+    const aDec = a ? await a.canDecode() : null;
+    meta = { width: v.displayWidth, height: v.displayHeight, codec: v.codec, rotation: v.rotation, fps: stats.averagePacketRate, dur, hasAudio: !!a, aCodec: a && a.codec, vDec, aDec };
+    const rows = [
+      ["file", file.name], ["format", fmtName], ["video", (v.codec || "unknown") + (vDec ? "" : "  (cannot decode here)")],
+      ["size", meta.width + " × " + meta.height + (v.rotation ? "  (rotated " + v.rotation + "°)" : "")],
+      ["frame rate", fmt(meta.fps, 3) + " fps (average)"], ["duration", fmt(dur, 2) + " s"],
+      ["audio", a ? (a.codec || "unknown") + (aDec ? "" : "  (cannot decode here)") : "none"]
+    ];
+    info.innerHTML = "";
+    for (const [k, val] of rows) { const dt = document.createElement("dt"); dt.textContent = k; const dd = document.createElement("dd"); dd.textContent = val; info.append(dt, dd); }
+    log("probe: " + JSON.stringify(meta));
+    $("pstart").max = Math.max(0, dur - PREVIEW_LEN).toFixed(1);
+    $("pstart").value = Math.min(Number($("pstart").max), dur > 6 ? dur / 2 - PREVIEW_LEN / 2 : 0).toFixed(1);
+    $("pstartOut").textContent = Number($("pstart").value).toFixed(1) + " s";
+    await showSupport();
+    if (!vDec) { log("cannot decode this video codec in this browser"); return; }
+    $("previewBtn").disabled = $("exportBtn").disabled = false;
+  } catch (e) {
+    log("PROBE FAILED: " + (e && (e.stack || e.message)));
+    info.innerHTML = "<dt>error</dt><dd></dd>"; info.querySelector("dd").textContent = "This file could not be read here: " + (e && e.message);
+  }
+});
+
+async function showSupport() {
+  const box = $("support"); box.innerHTML = "";
+  const checks = [["H.264 encode", () => canEncodeVideo("avc")], ["HEVC encode", () => canEncodeVideo("hevc")], ["VP9 encode", () => canEncodeVideo("vp9")], ["AAC encode", () => canEncodeAudio("aac")], ["Opus encode", () => canEncodeAudio("opus")]];
+  for (const [name, fn] of checks) {
+    let ok = false; try { ok = await fn(); } catch (e) { log(name + " check threw: " + e.message); }
+    const p = document.createElement("span"); p.className = "pill " + (ok ? "ok" : "bad"); p.textContent = name + (ok ? " ✓" : " ✗");
+    box.append(p); log(name + ": " + ok);
+  }
+}
+
+for (const id of ["amp", "bpm"]) $(id).addEventListener("input", () => $(id + "Out").textContent = $(id).value);
+$("pstart").addEventListener("input", () => $("pstartOut").textContent = Number($("pstart").value).toFixed(1) + " s");
+
+// ---------- the ONE render path, used by both preview and export ----------
+async function render({ trim, onProgress }) {
+  const strength = Number($("amp").value) / 100, bpm = Number($("bpm").value);
+  const { w, h } = outputSize(meta);
+  // Prefer H.264 (plays everywhere, Photos-friendly); fall back so other browsers still work.
+  let codec = null;
+  for (const c of ["avc", "hevc", "vp9", "av1"]) { if (await canEncodeVideo(c, { width: w, height: h })) { codec = c; break; } }
+  if (!codec) throw new Error("this browser cannot encode video at " + w + "×" + h);
+  let aCodec = null;
+  if (meta.hasAudio) for (const c of ["aac", "opus"]) { if (await canEncodeAudio(c)) { aCodec = c; break; } }
+  const canvas = new OffscreenCanvas(w, h);
+  const ctx = canvas.getContext("2d");
+  let frames = 0;
+  const input = new Input({ source: new BlobSource(file), formats: ALL_FORMATS });
+  const output = new Output({ format: new Mp4OutputFormat({ fastStart: "in-memory" }), target: new BufferTarget() });
+  const conv = await Conversion.init({
+    input, output, trim,
+    video: {
+      codec, quality: QUALITY_HIGH, forceTranscode: true, allowTransformationMetadata: false,
+      width: w, height: h, fit: "fill",
+      processedWidth: w, processedHeight: h,
+      process: (sample) => {
+        const s = shakeAt(sample.timestamp, w, h, strength, bpm);
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.fillStyle = "#000"; ctx.fillRect(0, 0, w, h);
+        ctx.translate(w / 2 + s.dx, h / 2 + s.dy);
+        ctx.rotate(s.rot);
+        ctx.scale(OVERSCAN, OVERSCAN);
+        sample.draw(ctx, -w / 2, -h / 2, w, h);
+        frames++;
+        return canvas;
+      }
+    },
+    audio: aCodec ? { codec: aCodec } : { discard: true },
+    showWarnings: false
+  });
+  if (conv.discardedTracks.length) log("discarded tracks: " + conv.discardedTracks.map(d => d.track.type + ":" + d.reason).join(", "));
+  if (!conv.isValid) throw new Error("conversion not possible: " + conv.discardedTracks.map(d => d.reason).join(", "));
+  log("render start: " + w + "×" + h + " " + codec + "/" + (aCodec || "no-audio") + (trim ? " trim " + fmt(trim.start, 1) + "–" + fmt(trim.end, 1) + " s" : " full"));
+  conv.onProgress = (p) => onProgress && onProgress(p, frames);
+  running = conv;
+  const t0 = performance.now();
+  await conv.execute();
+  running = null;
+  const secs = (performance.now() - t0) / 1000;
+  const buf = output.target.buffer;
+  const blob = new Blob([buf], { type: "video/mp4" });
+  log("render done: " + frames + " frames in " + fmt(secs, 1) + " s (" + fmt(frames / secs, 1) + " fps), " + mb(blob.size));
+  return { blob, frames, secs, w, h, codec };
+}
+
+// ---------- preview ----------
+$("previewBtn").addEventListener("click", async () => {
+  const start = Number($("pstart").value);
+  const end = Math.min(meta.dur, start + PREVIEW_LEN);
+  const prog = $("previewProg"), st = $("previewStatus"), vid = $("previewVid");
+  setBusy(true); prog.hidden = false; prog.value = 0; st.className = "status"; st.textContent = "Rendering…";
+  try {
+    const r = await render({ trim: { start, end }, onProgress: (p, f) => { prog.value = p; st.textContent = "Rendering… " + Math.round(p * 100) + "% (" + f + " frames)"; } });
+    if (vid.src) URL.revokeObjectURL(vid.src);
+    vid.src = URL.createObjectURL(r.blob); vid.hidden = false;
+    vid.onerror = () => log("PREVIEW PLAYBACK ERROR: " + (vid.error && vid.error.message || vid.error && vid.error.code));
+    vid.onloadedmetadata = () => log("preview playable: " + fmt(vid.duration, 2) + " s, " + vid.videoWidth + "×" + vid.videoHeight);
+    st.className = "status ok"; st.textContent = r.frames + " frames in " + fmt(r.secs, 1) + " s · " + fmt((end - start) / r.secs, 2) + "× real time";
+    try { await vid.play(); } catch (e) { log("autoplay refused (" + e.name + "); tap play"); }
+  } catch (e) { fail(st, "Preview", e); }
+  finally { setBusy(false); prog.hidden = true; }
+});
+
+// ---------- export ----------
+$("exportBtn").addEventListener("click", async () => {
+  const prog = $("exportProg"), st = $("exportStatus");
+  setBusy(true); $("cancelBtn").hidden = false; prog.hidden = false; prog.value = 0; st.className = "status"; st.textContent = "Exporting…"; $("saveBtn").hidden = true; $("saveStatus").textContent = "";
+  const t0 = performance.now();
+  try {
+    const r = await render({ trim: undefined, onProgress: (p, f) => {
+      prog.value = p; const el = (performance.now() - t0) / 1000;
+      const eta = p > 0.02 ? el / p - el : NaN;
+      st.textContent = "Exporting… " + Math.round(p * 100) + "% · " + f + " frames · " + (Number.isFinite(eta) ? Math.ceil(eta) + " s left" : "estimating");
+    } });
+    outBlob = r.blob; outName = file.name.replace(/\.[^.]+$/, "") + " - bass shake test.mp4";
+    st.className = "status ok"; st.textContent = "Done: " + r.frames + " frames, " + mb(r.blob.size) + ", " + fmt(meta.dur / r.secs, 2) + "× real time.";
+    $("saveBtn").hidden = false;
+  } catch (e) { fail(st, "Export", e); }
+  finally { setBusy(false); $("cancelBtn").hidden = true; prog.hidden = true; }
+});
+$("cancelBtn").addEventListener("click", () => { if (running) { running.cancel(); log("cancelled by user"); } });
+
+// ---------- save (goes through the page's downloads permission) ----------
+let downloads = null;
+if (window.claude && window.claude.use) {
+  window.claude.use("downloads").then(d => { downloads = d; log("downloads capability: " + (d ? "available" : "unavailable")); });
+} else log("downloads capability: not in a Claude viewer");
+$("saveBtn").addEventListener("click", async () => {
+  const st = $("saveStatus");
+  if (!outBlob) return;
+  if (downloads) {
+    try { const res = await downloads.save({ filename: outName, data: outBlob }); st.className = "status ok"; st.textContent = "Saved (" + res.status + ")."; log("save: " + res.status); }
+    catch (e) { st.className = "status bad"; st.textContent = "Not saved: " + (e.code || e.message); log("save failed: " + (e.code || "") + " " + (e.message || "")); }
+  } else {
+    // Outside a Claude viewer (local testing): plain download link.
+    const a = document.createElement("a"); a.href = URL.createObjectURL(outBlob); a.download = outName; a.click();
+    st.textContent = "Download started (local mode)."; log("save: local link");
+  }
+});
+
+function setBusy(b) { $("previewBtn").disabled = $("exportBtn").disabled = $("file").disabled = b; }
+function fail(st, what, e) {
+  st.className = "status bad";
+  st.textContent = what + " failed: " + (e && e.message);
+  log(what.toUpperCase() + " FAILED: " + (e && (e.stack || e.message)));
+}
+window.__ready = true;
+log("ready");
+</script>
+
+</body></html>

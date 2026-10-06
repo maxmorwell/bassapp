@@ -13,7 +13,7 @@ For each clip:
   4. preview == export: the preview's frames must match the export's frames at the same times
   5. for a clip whose picture is a still texture (name starts with 'synth'), measure the
      vertical shake ON THE OUTPUT PIXELS and compare it to the curve (magnitude and timing).
-     Measured = centroid of the blurred image, so it is compared with dy + trail/2.
+     Measured = centroid of the blurred image, so it is compared with dy + trail/2 (trail = shutter/360 of the move).
 """
 import argparse, base64, functools, http.server, importlib.util, json, os, subprocess, sys, threading, time
 import numpy as np
@@ -75,6 +75,10 @@ def main():
     ap.add_argument("--out", default="/tmp/bassapp-e2e")
     ap.add_argument("--port", type=int, default=8765)
     ap.add_argument("--preview-start", type=float, default=None)
+    ap.add_argument("--set", action="append", default=[], help="control=value before rendering, e.g. blur=0, wobble=2 (segment index), strength=80")
+    ap.add_argument("--preset", default=None, help="preset chip to click first")
+    ap.add_argument("--size", default=None, help="output size button: 720p | 1080p | Original")
+    ap.add_argument("--tag", default="", help="suffix for output file names")
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
     spec = importlib.util.spec_from_file_location("bsg", a.ref); ref = importlib.util.module_from_spec(spec); spec.loader.exec_module(ref)
@@ -94,6 +98,16 @@ def main():
             st = pg.inner_text("#anaStatus"); print("  analysis:", st, "(%.1f s wall)" % (time.time() - t0))
             if not st.startswith("Ready"):
                 ok_all = False; print("  FAIL"); print(pg.input_value("#log")[-2000:]); continue
+            if a.preset: pg.click("#chips button[data-preset='%s']" % a.preset)
+            for kv in a.set:
+                k, v = kv.split("=")
+                if pg.locator("#c_%s button" % k).count():
+                    pg.click("#c_%s button[data-i='%s']" % (k, v))
+                else:
+                    pg.evaluate("([k, v]) => { const e = document.getElementById('c_' + k); e.value = v; e.dispatchEvent(new Event('input')); }", [k, v])
+            if a.size: pg.click("#sizeSeg button:text-is('%s')" % a.size)
+            if a.set or a.preset or a.size: print("  set:", pg.evaluate("() => JSON.stringify(window.__app.sliders)"), "model:", pg.evaluate("() => JSON.stringify(window.__app.params)"))
+            name = name + a.tag
             c = pg.evaluate("""() => { const S = window.__app; return { dy: Array.from(S.curve.dy), amp: Array.from(S.curve.amp),
                  fps: S.meta.fps, fpsF: S.meta.fpsF, n: S.meta.nFrames, offset: S.offsetSec, sr: S.an.sr, ov: S.curve.overscan,
                  params: S.params, w: S.meta.width, h: S.meta.height, dur: S.meta.dur } }""")
@@ -113,15 +127,17 @@ def main():
                 if bestL != 0 or lags[0] < 0.98: ok_all = False; print("  FAIL alignment/shape")
             else:
                 t = np.arange(len(dy)) / c["fpsF"]; t30 = np.arange(len(rdy)) / 30
-                env = np.interp(t, t30, np.abs(rdy)); amp = np.array(c["amp"])
+                # envelope of the reference = |dy| at 15 Hz (flips every frame at 30 fps, so |cos| = 1)
+                renv = np.abs(ref.synth(E, P["K"], P["gamma"], 15, P["t"], P["decay"], P["normWindow"], P["blurSustain"], P["knee"], P["blurK"])[0])
+                env = np.interp(t, t30, renv); amp = np.array(c["amp"])
                 mm = (t > 0.3) & (t < t[-1] - 0.3)
                 corr = float(np.corrcoef(amp[mm], env[mm])[0, 1])
                 print("  curve vs reference (by time, %.3f fps): envelope corr %.3f" % (c["fpsF"], corr))
                 if corr < 0.9: ok_all = False; print("  FAIL")
             # --- 3. preview
             ps = a.preview_start if a.preview_start is not None else max(0.0, min(c["dur"] - 4, c["dur"] / 2 - 2))
-            pg.evaluate("v => { const e = document.getElementById('pstart'); e.value = v; e.dispatchEvent(new Event('input')); }", str(ps))
-            ps = float(pg.input_value("#pstart"))
+            pg.evaluate("v => { const e = document.getElementById('c_pstart'); e.value = v; e.dispatchEvent(new Event('input')); }", str(ps))
+            ps = float(pg.input_value("#c_pstart"))
             pg.click("#previewBtn")
             pg.wait_for_function("document.getElementById('previewStatus').className.match(/ok|bad/)", timeout=300000)
             print("  preview:", pg.inner_text("#previewStatus"))
@@ -155,14 +171,17 @@ def main():
             if name.startswith("synth"):
                 tex = np.frombuffer(open(os.path.join(os.path.dirname(clip), "tex.pgm"), "rb").read()[-1080 * 1920:], dtype=np.uint8).reshape(1920, 1080).astype(np.float32)
                 strips = frames_gray(exp, W // 2 - 60, H // 2 - 300, 120, 600)
+                if (W, H) != (1080, 1920):                       # output scaled: scale the texture to match
+                    from scipy.ndimage import zoom
+                    tex = zoom(tex, (H / 1920, W / 1080), order=1)
                 meas = measure_dy(strips, tex, c["ov"] / 100.0, W, H)
                 pxs = max(W, H) / 1920.0
                 # The renderer's blur averages copies over [lo, hi] around dy: a centred directional
                 # smear plus a shutter trail half-way back towards the previous frame's position.
-                # So the image's centroid sits at dy + trail/2 = dy + 0.25*(dy_prev - dy).
+                # So the image's centroid sits at dy + trail/2 = dy + (shutter/360)/2 * (dy_prev - dy).
                 dyf = dy[:len(meas)] * pxs
                 prev = np.r_[dyf[:1], dyf[:-1]]
-                want = dyf + 0.25 * (prev - dyf)
+                want = dyf + (P.get("shutter", 180) / 360.0) / 2 * (prev - dyf)
                 lags = {L: float(np.corrcoef(meas[5 + L:len(meas) - 5 + L], want[5:len(meas) - 5])[0, 1]) for L in range(-2, 3)}
                 bestL = max(lags, key=lags.get)
                 big = np.abs(want) > 8
@@ -171,6 +190,18 @@ def main():
                       % (lags[bestL], bestL, ratio, int(big.sum())))
                 np.savetxt(os.path.join(a.out, name + ".measured.csv"), np.c_[want, meas], delimiter=",", header="expected_centroid_px,measured_px", fmt="%.2f")
                 if bestL != 0 or lags[0] < 0.9 or not (0.8 < ratio < 1.2): ok_all = False; print("  FAIL pixels")
+                # sharpness = mean |vertical gradient| of the strip; motion blur lowers it
+                sharp = np.abs(np.diff(strips.astype(np.float32), axis=1)).mean(axis=(1, 2))
+                t = np.arange(len(sharp)) / c["fpsF"]
+                still = (np.abs(want) < 0.5) & (np.abs(prev - dyf) < 0.5)
+                held = (t > c["dur"] * 0.45) & (t < c["dur"] * 0.6)          # synth clips: held bass in the middle third
+                summary = dict(corr=lags[0], lag=bestL, ratio=ratio, out_w=W, out_h=H, fps=c["fpsF"], params=P,
+                               measured_peak=float(np.abs(meas).max()), curve_peak=float(np.abs(dyf).max()),
+                               sharp_moving=float(sharp[big].mean()) if big.any() else None,
+                               sharp_still=float(sharp[still].mean()) if still.any() else None,
+                               sharp_held=float(sharp[held].mean()))
+                print("  sharpness: moving %.2f, still %.2f, held bass %.2f (grey levels/px)" % (summary["sharp_moving"] or -1, summary["sharp_still"] or -1, summary["sharp_held"]))
+                json.dump(summary, open(os.path.join(a.out, name + ".summary.json"), "w"))
             pg.close()
         br.close()
     print("\nRESULT:", "PASS" if ok_all else "FAIL")

@@ -1,11 +1,17 @@
 // app.js — the page. Load clip -> decode its audio -> analyse -> shake curve -> render.
-// The model itself lives in shake.js (golden-tested against the reference generator).
-import { analyseAudio, energyPerFrame, synth, overscanFor, snapFps, PRESETS, presetParams, REF_H } from "./shake.js";
+// The model lives in shake.js (golden-tested against the reference generator); what the
+// sliders show vs the model values lives in controls.js (per-control tested).
+import { analyseAudio, energyPerFrame, synth, overscanFor, snapFps, blurRange, wobbleHz, REF_H } from "./shake.js";
+import { MAIN, ADVANCED, ALL, UI_PRESETS, presetModel, sliderFor, WOBBLE } from "./controls.js";
 
 const log = window.log;
 const $ = id => document.getElementById(id);
-const PREVIEW_LEN = 4;            // seconds
-const MAX_BLUR_DRAWS = 10;        // blur = averaged copies of the frame; cap per frame for speed
+const MAX_BLUR_DRAWS = 12;        // blur = averaged copies of the frame; cap per frame for speed
+const PREVIEW_DEFAULT = 3;        // seconds; slider 3-10, back to 3 on a new clip
+const OUTPUT = [["720p", 720], ["1080p", 1080], ["Original", 0]];   // by the SHORTER dimension
+// Feedback goes to a form service (Google Form -> Sheet). Not set up yet: Send falls back to
+// copying the report. Fill in the form's formResponse URL and its entry ids to switch it on.
+const FEEDBACK_FORM = { action: "", fields: { worked: "", look: "", text: "", report: "" } };
 
 let MB;
 try {
@@ -13,7 +19,7 @@ try {
   log("library loaded (mediabunny 1.61.3, hosted with the page)");
 } catch (e) {
   log("LIBRARY LOAD FAILED: " + (e && e.message));
-  $("info").innerHTML = "<dt>error</dt><dd>The video library could not load. Copy the report below.</dd>";
+  setStatus("anaStatus", "bad", "The video library could not load. Please send feedback below with the report ticked.");
   throw e;
 }
 const { Input, Output, BlobSource, BufferTarget, Mp4OutputFormat, Conversion, ALL_FORMATS, AudioSampleSink, EncodedPacketSink, canEncodeVideo, canEncodeAudio, QUALITY_HIGH } = MB;
@@ -23,54 +29,106 @@ const S = {
   file: null, meta: null,          // probe results
   an: null, offsetSec: 0,          // audio analysis (the expensive part, once per file)
   Ecache: new Map(),               // "p|fMin" -> energy per frame
-  params: presetParams(0), presetIndex: 0,
-  curve: null,                     // { dy, rot, blur, amp, peak } in reference px
+  preset: UI_PRESETS[0], params: presetModel(UI_PRESETS[0]),   // REAL model values
+  sliders: {},                     // what the sliders show (display only)
+  outSize: 1080, previewLen: PREVIEW_DEFAULT,
+  curve: null,                     // { dy, rot, blur, amp, peak, overscan } in reference px
   out: null,                       // { blob, name, file } after export
   running: null,                   // active Conversion
+  names: new Set(),                // loaded file names: removed from the feedback report
+  fb: { worked: null, look: null },
 };
 window.__app = S;                  // for automated checks
 
 const fmt = (n, d = 2) => Number.isFinite(n) ? n.toFixed(d) : "?";
 const mb = b => (b / 1048576).toFixed(1) + " MB";
 const even = n => Math.max(2, Math.round(n / 2) * 2);
+const mmss = s => Math.floor(s / 60) + ":" + String(Math.round(s % 60)).padStart(2, "0");
 
 // ------------------------------------------------------------- controls ----------
-// [key, label, min, max, step, format, hint]. Meanings and statuses: SOP-03 register.
-const MAIN = [
-  ["K", "Strength", 0, 50, 1, v => v + " px", "Peak movement. Scales everything: shake, tilt, blur."],
-  ["blurK", "Motion blur", 0, 0.4, 0.01, v => v.toFixed(2), "Extra smear on each jolt."],
-  ["blurSustain", "Bass smear", 0, 0.6, 0.01, v => v.toFixed(2), "Smear while deep bass is held — makes long 808s visible."],
-  ["rate", "Speed", 7.5, 15, 7.5, v => v === 15 ? "fast" : "slow", "Fast flips every frame; slow every two."],
-];
-const MORE = [
-  ["decay", "Ring-down", 0.2, 0.8, 0.01, v => v.toFixed(2), "How long each hit keeps shaking. Lower = shorter, more rests."],
-  ["knee", "Ceiling", 0.3, 1.0, 0.05, v => v >= 1 ? "hard" : v.toFixed(2), "Softens the biggest hits. 1.0 = hard limit."],
-  ["gamma", "Response", 0.25, 1.5, 0.05, v => v.toFixed(2), "Low = small hits shake almost as much as big ones."],
-  ["t", "Threshold", 0, 0.6, 0.02, v => v.toFixed(2), "Ignore hits below this."],
-  ["p", "Bass focus", 1, 6, 0.5, v => v.toFixed(1), "Higher = only the deepest bass moves it."],
-  ["fMin", "Low cut", 15, 60, 1, v => v + " Hz", "Lowest frequency that counts."],
-  ["normWindow", "Context", 1, 10, 0.5, v => v + " s", "Each hit is judged against the loudest bass this close by."],
-];
+// Slider markup follows the mockup: label · hint · readout, then the track with its marks.
+// A mark at slider value v sits at (f% + (8 - f*0.16) px) for a 16 px knob, f = 0..100.
+const markLeft = f => `calc(${f.toFixed(2)}% + ${(8 - f * 0.16).toFixed(2)}px)`;
+function sliderRow(c, box, onInput) {
+  const d = document.createElement("div"); d.className = "row";
+  if (c.seg) {
+    d.classList.add("seg-row");
+    d.innerHTML = `<label id="l_${c.id}">${c.label}</label><span class="hint">${c.hint || ""}</span><span></span><div class="seg" role="group" aria-labelledby="l_${c.id}" id="c_${c.id}">${c.seg.map((x, k) => `<button type="button" data-i="${k}" aria-pressed="false">${x}</button>`).join("")}</div>`;
+    box.append(d);
+    d.querySelectorAll("button").forEach(b => b.addEventListener("click", () => onInput(Number(b.dataset.i))));
+    return d;
+  }
+  const span = c.max - c.min, frac = v => 100 * (v - c.min) / span;
+  let marks = "";
+  if (c.crossover) {
+    const L = markLeft(frac(c.crossover.at));
+    marks = `<span class="mark" style="left:${L}"></span><span class="ml ml-l" style="right:calc(100% - ${L.slice(5, -1)} + 7px)">${c.crossover.labels[0]}</span><span class="ml ml-r" style="left:calc(${L.slice(5, -1)} + 7px)">${c.crossover.labels[1]}</span>`;
+  }
+  if (c.marks) marks += c.marks.map(m => { const L = markLeft(frac(m.at)); return `<span class="mark mark-c" style="left:${L}"></span><span class="ml ml-c" style="left:${L}">${m.label}</span>`; }).join("");
+  d.innerHTML = `<label for="c_${c.id}">${c.label}</label><span class="hint">${c.hint || ""}</span><output id="o_${c.id}" for="c_${c.id}"></output>` +
+    `<div class="track${marks ? " hasmark" : ""}"><input type="range" id="c_${c.id}" min="${c.min}" max="${c.max}" step="${c.step}">${marks}</div>` +
+    (c.scale ? `<div class="scale"><span>${c.scale[0]}</span><span>${c.scale[1]}</span></div>` : "");
+  box.append(d);
+  const inp = d.querySelector("input");
+  inp.addEventListener("input", () => onInput(Number(inp.value)));
+  if (c.toModel) inp.addEventListener("change", () => log("set " + c.id + " = " + inp.value + " -> " + JSON.stringify(c.toModel(Number(inp.value)))));
+  return d;
+}
+function paintSlider(id, v, text) {
+  const inp = $("c_" + id); if (!inp) return;
+  inp.value = v;
+  const f = (Number(inp.value) - Number(inp.min)) / (Number(inp.max) - Number(inp.min));
+  inp.style.setProperty("--p", `calc(${(f * 100).toFixed(2)}% - ${(f * 16 - 8).toFixed(1)}px)`);
+  if (text != null) $("o_" + id).textContent = text;
+}
 
 function buildControls() {
-  const sel = $("preset");
-  PRESETS.forEach((p, i) => { const o = document.createElement("option"); o.value = i; o.textContent = p.name; sel.append(o); });
-  const o = document.createElement("option"); o.value = "custom"; o.textContent = "Custom"; o.disabled = true; sel.append(o);
-  sel.addEventListener("change", () => { S.presetIndex = Number(sel.value); S.params = presetParams(S.presetIndex); syncControls(); paramsChanged("preset " + PRESETS[S.presetIndex].name); });
-  for (const [list, box] of [[MAIN, $("mainCtls")], [MORE, $("moreCtls")]]) for (const [key, label, min, max, step, f, hint] of list) {
-    const d = document.createElement("div"); d.className = "ctl";
-    d.innerHTML = `<label for="c_${key}">${label}</label><input type="range" id="c_${key}" min="${min}" max="${max}" step="${step}"><output id="o_${key}"></output><p class="hint">${hint}</p>`;
-    box.append(d);
-    const inp = d.querySelector("input");
-    inp.addEventListener("input", () => { S.params[key] = Number(inp.value); $("o_" + key).textContent = f(S.params[key]); sel.value = "custom"; paramsChanged(null); });
-    inp.addEventListener("change", () => log("set " + key + " = " + S.params[key]));
+  const chips = $("chips");
+  for (const name of [...UI_PRESETS, "Custom"]) {
+    const b = document.createElement("button"); b.type = "button"; b.className = "chip" + (name === "Custom" ? " custom" : "");
+    b.textContent = name; b.dataset.preset = name; b.setAttribute("aria-pressed", "false");
+    if (name !== "Custom") b.addEventListener("click", () => applyPreset(name));
+    else b.tabIndex = -1;
+    chips.append(b);
   }
-  $("resetBtn").addEventListener("click", () => { S.params = presetParams(S.presetIndex); sel.value = S.presetIndex; syncControls(); paramsChanged("reset to " + PRESETS[S.presetIndex].name); });
+  for (const [list, box] of [[MAIN, $("mainCtls")], [ADVANCED, $("advCtls")]]) for (const c of list) {
+    sliderRow(c, box, v => {
+      S.sliders[c.id] = v;
+      Object.assign(S.params, c.toModel(v));
+      S.preset = "Custom";
+      syncControls(); paramsChanged(null);
+      if (c.seg) log("set " + c.id + " = " + c.seg[v] + " -> " + JSON.stringify(c.toModel(v)));
+    });
+  }
+  // Preview: start + length (seconds, real units)
+  sliderRow({ id: "pstart", label: "Start at", hint: "or tap the curve", min: 0, max: 0, step: 0.1 }, $("prevCtls"), v => setPreviewStart(v));
+  sliderRow({ id: "plen", label: "Length", hint: "resets on new clip", min: 3, max: 10, step: 1 }, $("prevCtls"), v => { S.previewLen = v; setPreviewStart(Number($("c_pstart").value)); });
+  $("c_plen").addEventListener("change", () => log("preview length = " + S.previewLen + " s"));
+  // Output size
+  const seg = $("sizeSeg");
+  for (const [label, px] of OUTPUT) {
+    const b = document.createElement("button"); b.type = "button"; b.textContent = label; b.dataset.px = px;
+    b.addEventListener("click", () => { S.outSize = px; syncOutSize(); paramsChanged("output size " + label); });
+    seg.append(b);
+  }
+  syncOutSize();
+  applyPreset(S.preset, true);
+}
+function applyPreset(name, quiet) {
+  S.preset = name; S.params = presetModel(name);
+  S.sliders = {}; for (const c of ALL) S.sliders[c.id] = sliderFor(c, S.params);
   syncControls();
+  if (!quiet) paramsChanged("preset " + name);
 }
 function syncControls() {
-  for (const [key, , , , , f] of [...MAIN, ...MORE]) { $("c_" + key).value = S.params[key]; $("o_" + key).textContent = f(S.params[key]); }
+  for (const b of $("chips").children) b.setAttribute("aria-pressed", String(b.dataset.preset === S.preset));
+  for (const c of ALL) {
+    const v = S.sliders[c.id];
+    if (c.seg) { $("c_" + c.id).querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", String(Number(b.dataset.i) === v))); continue; }
+    paintSlider(c.id, v, c.show(v, S.params));
+  }
 }
+function syncOutSize() { for (const b of $("sizeSeg").children) b.setAttribute("aria-pressed", String(Number(b.dataset.px) === S.outSize)); }
 
 // --------------------------------------------------------------- loading ---------
 $("file").addEventListener("change", async () => {
@@ -78,11 +136,13 @@ $("file").addEventListener("change", async () => {
   S.file = file; S.meta = null; S.an = null; S.Ecache.clear(); S.curve = null; S.out = null;
   for (const id of ["shareBtn", "downloadBtn", "previewVid"]) $(id).hidden = true;
   $("previewBtn").disabled = $("exportBtn").disabled = true;
-  $("exportStatus").textContent = $("saveStatus").textContent = $("previewStatus").textContent = "";
+  for (const id of ["exportStatus", "saveStatus", "previewStatus", "anaStatus"]) setStatus(id, "", "");
+  S.previewLen = PREVIEW_DEFAULT; paintSlider("plen", PREVIEW_DEFAULT, PREVIEW_DEFAULT + " s");
   drawPlot();
   if (!file) return;
+  S.names.add(file.name);
   log("file: " + file.name + " (" + mb(file.size) + ", type '" + file.type + "')");
-  const info = $("info"); info.innerHTML = "<dt>clip</dt><dd>reading…</dd>";
+  $("clipName").textContent = "reading " + file.name + "…";
   try {
     const input = new Input({ source: new BlobSource(file), formats: ALL_FORMATS });
     const fmtName = (await input.getFormat()).name;
@@ -96,27 +156,20 @@ $("file").addEventListener("change", async () => {
     const v0 = await v.getFirstTimestamp();
     const fps = snapFps(stats.averagePacketRate), fpsF = fps.num / fps.den;
     const nFrames = Math.max(2, Math.ceil((dur - v0) * fpsF - 1e-6));
-    S.meta = { width: v.displayWidth, height: v.displayHeight, codec: v.codec, rotation: v.rotation, fpsMeasured: stats.averagePacketRate, fps, fpsF, v0, dur, nFrames, hasAudio: !!a, aCodec: a && a.codec, vDec, aDec };
-    const rows = [
-      ["file", file.name], ["format", fmtName], ["video", (v.codec || "unknown") + (vDec ? "" : "  (cannot decode here)")],
-      ["size", S.meta.width + " × " + S.meta.height + (v.rotation ? "  (rotated " + v.rotation + "°)" : "")],
-      ["frame rate", fmt(stats.averagePacketRate, 3) + " fps → using " + fmt(fpsF, 3)], ["duration", fmt(dur, 2) + " s"],
-      ["audio", a ? (a.codec || "unknown") + (aDec ? "" : "  (cannot decode here)") : "none"]
-    ];
-    info.innerHTML = "";
-    for (const [k, val] of rows) { const dt = document.createElement("dt"); dt.textContent = k; const dd = document.createElement("dd"); dd.textContent = val; info.append(dt, dd); }
+    S.meta = { format: fmtName, width: v.displayWidth, height: v.displayHeight, codec: v.codec, rotation: v.rotation, fpsMeasured: stats.averagePacketRate, fps, fpsF, v0, dur, nFrames, hasAudio: !!a, aCodec: a && a.codec, vDec, aDec };
+    $("clipName").textContent = file.name + " · " + mmss(dur) + " · " + S.meta.width + "×" + S.meta.height + " · " + fmt(fpsF, fpsF % 1 ? 2 : 0) + " fps";
     log("probe: " + JSON.stringify(S.meta));
-    $("pstart").max = Math.max(0, dur - PREVIEW_LEN).toFixed(1);
-    setPreviewStart(dur > 2 * PREVIEW_LEN ? dur / 2 - PREVIEW_LEN / 2 : 0);
-    await showSupport();
-    if (!vDec) { setStatus("anaStatus", "bad", "This browser can't decode this video."); return; }
+    setPreviewStart(dur > 2 * S.previewLen ? dur / 2 - S.previewLen / 2 : 0);
+    await logSupport();
+    if (!vDec) { setStatus("anaStatus", "bad", "This browser can't decode this video (" + (v.codec || "unknown") + ")."); return; }
     if (!a) { setStatus("anaStatus", "bad", "This clip has no sound, so there's nothing to drive the shake."); return; }
-    if (!aDec) { setStatus("anaStatus", "bad", "This browser can't decode this clip's sound."); return; }
+    if (!aDec) { setStatus("anaStatus", "bad", "This browser can't decode this clip's sound (" + (a.codec || "unknown") + ")."); return; }
     await analyse(a, dur);
     $("previewBtn").disabled = $("exportBtn").disabled = false;
   } catch (e) {
     log("LOAD FAILED: " + (e && (e.stack || e.message)));
-    info.innerHTML = "<dt>error</dt><dd></dd>"; info.querySelector("dd").textContent = "This file could not be read here: " + (e && e.message);
+    $("clipName").textContent = file.name;
+    setStatus("anaStatus", "bad", "This file could not be read here: " + (e && e.message));
   }
 });
 
@@ -157,14 +210,13 @@ async function analyse(aTrack, dur) {
   paramsChanged("initial");
 }
 
-async function showSupport() {
-  const box = $("support"); box.innerHTML = "";
-  const checks = [["H.264 encode", () => canEncodeVideo("avc")], ["HEVC encode", () => canEncodeVideo("hevc")], ["AAC encode", () => canEncodeAudio("aac")]];
-  for (const [name, fn] of checks) {
+async function logSupport() {
+  const out = [];
+  for (const [name, fn] of [["H.264 encode", () => canEncodeVideo("avc")], ["HEVC encode", () => canEncodeVideo("hevc")], ["AAC encode", () => canEncodeAudio("aac")]]) {
     let ok = false; try { ok = await fn(); } catch (e) { log(name + " check threw: " + e.message); }
-    const p = document.createElement("span"); p.className = "pill " + (ok ? "ok" : "bad"); p.textContent = name + (ok ? " ✓" : " ✗");
-    box.append(p); log(name + ": " + ok);
+    out.push(name + ": " + ok);
   }
+  log(out.join(", "));
 }
 
 // ----------------------------------------------------------------- curve ---------
@@ -180,28 +232,29 @@ function paramsChanged(why) {
   const { w, h } = outputSize();
   const ov = overscanFor(S.curve.dy, S.curve.rot, w, h, Math.max(w, h) / REF_H);
   S.curve.overscan = ov;
-  $("curveStatus").textContent = "peak " + fmt(S.curve.peak, 1) + " px · moving " + Math.round(moving * 100) + "% of frames · zoom " + fmt(ov, 1) + "%";
+  $("curveNote").textContent = "Shaded: the preview section. Tap the curve to move it. Zoom " + fmt(ov, 1) + "% hides the edges.";
   drawPlot();
-  const msg = "curve" + (why ? " (" + why + ")" : "") + ": " + JSON.stringify(P) + " -> peak " + fmt(S.curve.peak, 2) + " px, moving " + Math.round(moving * 100) + "%, overscan " + ov;
+  const msg = "curve" + (why ? " (" + why + ")" : "") + ": preset " + S.preset + ", sliders " + JSON.stringify(S.sliders) + ", model " + JSON.stringify(P) +
+    " -> peak " + fmt(S.curve.peak, 2) + " ref px, wobble " + fmt(wobbleHz(P.rate, m.fps), 2) + " Hz, moving " + Math.round(moving * 100) + "%, overscan " + ov;
   clearTimeout(logTimer);
   if (why) log(msg); else logTimer = setTimeout(() => log(msg), 600);   // sliders: log once they settle
 }
 
 function drawPlot() {
   const c = $("plot"), dpr = window.devicePixelRatio || 1;
-  const W = Math.max(100, Math.round(c.clientWidth * dpr)), H = Math.round(130 * dpr);
+  const W = Math.max(100, Math.round(c.clientWidth * dpr)), H = Math.max(40, Math.round(c.clientHeight * dpr));
   if (c.width !== W) c.width = W; if (c.height !== H) c.height = H;
   const g = c.getContext("2d"); g.clearRect(0, 0, W, H);
   const cs = getComputedStyle(document.documentElement);
-  const accent = cs.getPropertyValue("--accent").trim(), soft = cs.getPropertyValue("--accent-soft").trim(), muted = cs.getPropertyValue("--muted").trim();
-  if (!S.curve || !S.meta) { g.fillStyle = muted; g.font = (12 * dpr) + "px system-ui"; g.fillText("no clip yet", 10 * dpr, H / 2); return; }
+  const accent = cs.getPropertyValue("--accent").trim(), muted = cs.getPropertyValue("--muted").trim();
+  if (!S.curve || !S.meta) { g.fillStyle = muted; g.font = (12 * dpr) + "px " + cs.getPropertyValue("--mono"); g.fillText("no clip yet", 10 * dpr, H / 2 + 4 * dpr); return; }
   const { dy, blur } = S.curve, n = dy.length, fpsF = S.meta.fpsF;
-  // preview window
-  const ps = Number($("pstart").value);
-  const x0 = (ps * fpsF) / n * W, x1 = Math.min(W, ((ps + PREVIEW_LEN) * fpsF) / n * W);
-  g.fillStyle = soft; g.fillRect(x0, 0, Math.max(2, x1 - x0), H);
+  // preview section, shaded
+  const ps = Number($("c_pstart").value);
+  const x0 = (ps * fpsF) / n * W, x1 = Math.min(W, ((ps + S.previewLen) * fpsF) / n * W);
+  g.fillStyle = accent; g.globalAlpha = 0.14; g.fillRect(x0, 0, Math.max(2, x1 - x0), H); g.globalAlpha = 1;
   const scale = (H / 2 - 6 * dpr) / Math.max(30, S.curve.peak);
-  g.strokeStyle = muted; g.globalAlpha = 0.5; g.lineWidth = dpr; g.beginPath(); g.moveTo(0, H / 2); g.lineTo(W, H / 2); g.stroke(); g.globalAlpha = 1;
+  g.strokeStyle = "rgba(255,255,255,.18)"; g.lineWidth = dpr; g.beginPath(); g.moveTo(0, H / 2); g.lineTo(W, H / 2); g.stroke();
   // shake: per pixel column, the range of dy
   g.fillStyle = accent;
   for (let px = 0; px < W; px++) {
@@ -210,42 +263,44 @@ function drawPlot() {
     if (hi - lo > 0.2) g.fillRect(px, H / 2 - hi * scale, 1, Math.max(1, (hi - lo) * scale));
   }
   // blur as a thin line along the bottom
-  g.strokeStyle = muted; g.lineWidth = dpr; g.beginPath();
+  g.strokeStyle = muted; g.globalAlpha = 0.6; g.lineWidth = dpr; g.beginPath();
   for (let px = 0; px < W; px++) {
     const a = Math.floor(px / W * n), b = Math.max(a + 1, Math.floor((px + 1) / W * n));
     let m = 0; for (let i = a; i < b && i < n; i++) m = Math.max(m, blur[i]);
     const y = H - 2 * dpr - m * scale * 0.5; px ? g.lineTo(px, y) : g.moveTo(px, y);
   }
-  g.stroke();
+  g.stroke(); g.globalAlpha = 1;
 }
 $("plot").addEventListener("click", e => {
   if (!S.meta) return;
   const r = $("plot").getBoundingClientRect();
   const t = (e.clientX - r.left) / r.width * S.meta.dur;
-  setPreviewStart(t - PREVIEW_LEN / 2); log("preview start set from curve: " + fmt(Number($("pstart").value), 1) + " s");
+  setPreviewStart(t - S.previewLen / 2); log("preview start set from curve: " + fmt(Number($("c_pstart").value), 1) + " s");
 });
 window.addEventListener("resize", () => drawPlot());
 function setPreviewStart(t) {
-  const max = Number($("pstart").max);
-  $("pstart").value = Math.max(0, Math.min(max, t)).toFixed(1);
-  $("pstartOut").textContent = Number($("pstart").value).toFixed(1) + " s";
+  const max = S.meta ? Math.max(0, S.meta.dur - S.previewLen) : 0;
+  $("c_pstart").max = max.toFixed(1);
+  const v = Math.max(0, Math.min(max, t));
+  paintSlider("pstart", v.toFixed(1), Number(v).toFixed(1) + " s");
+  paintSlider("plen", S.previewLen, S.previewLen + " s");
   drawPlot();
 }
-$("pstart").addEventListener("input", () => setPreviewStart(Number($("pstart").value)));
-$("fullres").addEventListener("change", () => paramsChanged("resolution " + ($("fullres").checked ? "full" : "capped")));
 
 // --------------------------------------------------------------- render ----------
+// Output size by the SHORTER dimension (1080x1920 vertical = 1080p). Never upscales.
 function outputSize() {
   const m = S.meta; if (!m) return { w: 0, h: 0 };
   let w = m.width, h = m.height;
-  if (!$("fullres").checked) { const s = Math.min(1, 1920 / Math.max(w, h)); w *= s; h *= s; }
+  const short = Math.min(w, h);
+  if (S.outSize && short > S.outSize) { const s = S.outSize / short; w *= s; h *= s; }
   return { w: even(w), h: even(h) };
 }
 
 // The ONE render path, used by both preview and export. The curve is computed for the
 // whole clip; a frame is looked up by its time, so the preview cannot differ from the export.
 async function render({ trim, onProgress }) {
-  const m = S.meta, cv = S.curve;
+  const m = S.meta, cv = S.curve, shutter = S.params.shutter ?? 180;
   const { w, h } = outputSize();
   const pxScale = Math.max(w, h) / REF_H;               // reference px are 1/1920 of the long side
   const ov = cv.overscan / 100;
@@ -284,15 +339,14 @@ async function render({ trim, onProgress }) {
         idxMin = Math.min(idxMin, i); idxMax = Math.max(idxMax, i);
         const dy = cv.dy[i] * pxScale, rot = cv.rot[i] * Math.PI / 180;
         const prev = cv.dy[Math.max(0, i - 1)] * pxScale;
-        // Blur: shutter (half the move since the last frame, trailing) + directional smear (centred).
-        const L = cv.blur[i] * pxScale, trail = 0.5 * (prev - dy);
-        const lo = Math.min(0, trail) - L / 2, hi = Math.max(0, trail) + L / 2, span = hi - lo;
+        // Blur: shutter trail back towards the previous position + centred directional smear.
+        const { lo, hi } = blurRange(prev, dy, cv.blur[i] * pxScale, shutter), span = hi - lo;
         const draws = span < 0.75 ? 1 : Math.min(MAX_BLUR_DRAWS, Math.ceil(span / 2) + 1);
         maxDraws = Math.max(maxDraws, draws);
         ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1;
         ctx.fillStyle = "#000"; ctx.fillRect(0, 0, w, h);
         if (draws === 1) {
-          ctx.translate(w / 2, h / 2 + dy); ctx.rotate(rot); ctx.scale(ov, ov);
+          ctx.translate(w / 2, h / 2 + dy + (lo + hi) / 2); ctx.rotate(rot); ctx.scale(ov, ov);
           sample.draw(ctx, -w / 2, -h / 2, w, h);
         } else {
           sctx.setTransform(1, 0, 0, 1, 0, 0); sample.draw(sctx, 0, 0, w, h);
@@ -313,7 +367,7 @@ async function render({ trim, onProgress }) {
   });
   if (conv.discardedTracks.length) log("discarded tracks: " + conv.discardedTracks.map(d => d.track.type + ":" + d.reason).join(", "));
   if (!conv.isValid) throw new Error("conversion not possible: " + conv.discardedTracks.map(d => d.reason).join(", "));
-  log("render start: " + w + "×" + h + " " + codec + "/" + (aCodec || "no-audio") + ", zoom " + fmt(cv.overscan, 1) + "%" + (trim ? ", " + fmt(trim.start, 1) + "–" + fmt(trim.end, 1) + " s" : ", full clip"));
+  log("render start: " + w + "×" + h + " " + codec + "/" + (aCodec || "no-audio") + ", zoom " + fmt(cv.overscan, 1) + "%, shutter " + fmt(shutter, 0) + "°" + (trim ? ", " + fmt(trim.start, 1) + "–" + fmt(trim.end, 1) + " s" : ", full clip"));
   conv.onProgress = p => onProgress && onProgress(p, frames);
   S.running = conv;
   const t0 = performance.now();
@@ -327,12 +381,12 @@ async function render({ trim, onProgress }) {
 // ---------------------------------------------------------------- preview --------
 $("previewBtn").addEventListener("click", async () => {
   // Start half-way through frame k, so frame k is unambiguously the one showing at `start`.
-  const m = S.meta, k = Math.round((Number($("pstart").value) - m.v0) * m.fpsF);
-  const start = m.v0 + (k + 0.5) / m.fpsF, end = Math.min(m.dur, start + PREVIEW_LEN);
+  const m = S.meta, k = Math.round((Number($("c_pstart").value) - m.v0) * m.fpsF);
+  const start = m.v0 + (k + 0.5) / m.fpsF, end = Math.min(m.dur, start + S.previewLen);
   const prog = $("previewProg"), vid = $("previewVid");
   setBusy(true); prog.hidden = false; prog.value = 0; setStatus("previewStatus", "", "Rendering…");
   try {
-    const r = await render({ trim: { start, end }, onProgress: (p, f) => { prog.value = p; setStatus("previewStatus", "", "Rendering… " + Math.round(p * 100) + "%"); } });
+    const r = await render({ trim: { start, end }, onProgress: p => { prog.value = p; setStatus("previewStatus", "", "Rendering… " + Math.round(p * 100) + "%"); } });
     if (vid.src) URL.revokeObjectURL(vid.src);
     vid.src = URL.createObjectURL(r.blob); vid.hidden = false;
     vid.onerror = () => log("PREVIEW PLAYBACK ERROR: " + (vid.error && (vid.error.message || vid.error.code)));
@@ -356,20 +410,20 @@ if (window.__lastExportInterrupted) setStatus("exportStatus", "bad", "Your last 
 $("exportBtn").addEventListener("click", async () => {
   const prog = $("exportProg");
   setBusy(true); $("cancelBtn").hidden = false; $("keepOpen").hidden = false; prog.hidden = false; prog.value = 0;
-  $("shareBtn").hidden = $("downloadBtn").hidden = true; $("saveStatus").textContent = ""; S.out = null;
+  $("shareBtn").hidden = $("downloadBtn").hidden = true; setStatus("saveStatus", "", ""); S.out = null;
   setStatus("exportStatus", "", "Exporting…");
   hiddenDuringRun = false;
   try { sessionStorage.setItem("bs_export_running", "1"); } catch {}
   try { if (navigator.wakeLock) { wakeLock = await navigator.wakeLock.request("screen"); log("screen wake lock on"); } } catch (e) { log("wake lock unavailable: " + e.name); }
   const t0 = performance.now();
   try {
-    const r = await render({ trim: undefined, onProgress: (p, f) => {
+    const r = await render({ trim: undefined, onProgress: p => {
       prog.value = p; const el = (performance.now() - t0) / 1000, eta = p > 0.02 ? el / p - el : NaN;
       setStatus("exportStatus", "", "Exporting… " + Math.round(p * 100) + "% · " + (Number.isFinite(eta) ? Math.ceil(eta) + " s left" : "estimating"));
     } });
     const name = S.file.name.replace(/\.[^.]+$/, "") + " - bass shake.mp4";
     S.out = { blob: r.blob, name, file: new File([r.blob], name, { type: "video/mp4" }) };
-    setStatus("exportStatus", "ok", "Done: " + r.frames + " frames, " + mb(r.blob.size) + ", " + fmt(S.meta.dur / r.secs, 2) + "× real time.");
+    setStatus("exportStatus", "ok", "Done: " + r.w + "×" + r.h + ", " + r.frames + " frames, " + mb(r.blob.size) + ", " + fmt(S.meta.dur / r.secs, 2) + "× real time.");
     const canShare = !!(navigator.canShare && navigator.canShare({ files: [S.out.file] }));
     log("share sheet with file: " + (canShare ? "available" : "not available"));
     $("shareBtn").hidden = !canShare; $("downloadBtn").hidden = false;
@@ -409,12 +463,82 @@ $("downloadBtn").addEventListener("click", () => {
   log("download started" + (inClaudeFrame ? " (inside Claude's frame)" : ""));
 });
 
+// --------------------------------------------------------------- feedback ---------
+// Shows exactly what will be sent; sends only on tap; never video or audio. File names are
+// replaced with "clip.<ext>" so nothing personal goes with the report.
+const FB_WORKED = ["Yes", "Partly", "No"], FB_LOOK = ["Great", "OK", "Not right"];
+function fbSeg(boxId, opts, key) {
+  const box = $(boxId);
+  opts.forEach(o => {
+    const b = document.createElement("button"); b.type = "button"; b.textContent = o; b.setAttribute("aria-pressed", "false");
+    b.addEventListener("click", () => { S.fb[key] = S.fb[key] === o ? null : o; for (const x of box.children) x.setAttribute("aria-pressed", String(x.textContent === S.fb[key])); fbRefresh(); });
+    box.append(b);
+  });
+}
+function redact(text) {
+  let t = text;
+  for (const n of S.names) { const ext = (n.match(/\.[^.]+$/) || [""])[0]; const stem = n.replace(/\.[^.]+$/, ""); t = t.split(n).join("clip" + ext); if (stem.length >= 4) t = t.split(stem).join("clip"); }
+  return t;
+}
+function technicalReport() {
+  const m = S.meta;
+  const lines = ["build " + window.BUILD, "browser " + navigator.userAgent,
+    "settings: preset " + S.preset + ", sliders " + JSON.stringify(S.sliders) + ", output " + (S.outSize || "original") + ", preview " + S.previewLen + " s",
+    "model: " + JSON.stringify(S.params),
+    m ? "clip: " + m.format + ", " + m.width + "x" + m.height + ", " + fmt(m.fpsF, 3) + " fps, " + fmt(m.dur, 2) + " s, video " + m.codec + ", audio " + m.aCodec : "clip: none loaded",
+    "--- log ---", ...window.__log];
+  return redact(lines.join("\n"));
+}
+function fbPayload() {
+  return { worked: S.fb.worked || "", look: S.fb.look || "", text: $("fbText").value.trim(), report: $("fbReport").checked ? technicalReport() : "" };
+}
+function fbRefresh() {
+  const p = fbPayload();
+  $("fbPreview").value = "Did it work? " + (p.worked || "—") + "\nHow did the shake look? " + (p.look || "—") + "\nAnything else: " + (p.text || "—") +
+    "\n\nTechnical report: " + (p.report ? "\n" + p.report : "not included");
+}
+window.__onLog = () => { if ($("s-feedback").querySelector("details.sent").open) fbRefresh(); };
+fbSeg("fbWorked", FB_WORKED, "worked"); fbSeg("fbLook", FB_LOOK, "look");
+$("fbText").addEventListener("input", fbRefresh); $("fbReport").addEventListener("change", fbRefresh);
+$("s-feedback").querySelector("details.sent").addEventListener("toggle", fbRefresh);
+$("fbSend").addEventListener("click", async () => {
+  const p = fbPayload(); fbRefresh();
+  if (!p.worked && !p.look && !p.text) { setStatus("fbStatus", "bad", "Pick an answer or write something first."); return; }
+  if (!FEEDBACK_FORM.action) {
+    try { await navigator.clipboard.writeText($("fbPreview").value); setStatus("fbStatus", "", "Sending isn't switched on in this test build yet. Your feedback is copied: paste it into a message to us."); }
+    catch { setStatus("fbStatus", "bad", "Sending isn't switched on in this test build yet. Open “What will be sent”, copy it, and send it to us."); }
+    log("feedback: no form configured, copied instead"); return;
+  }
+  const body = new URLSearchParams();
+  for (const k of ["worked", "look", "text", "report"]) if (FEEDBACK_FORM.fields[k]) body.append(FEEDBACK_FORM.fields[k], p[k]);
+  $("fbSend").disabled = true; setStatus("fbStatus", "", "Sending…");
+  try {
+    await fetch(FEEDBACK_FORM.action, { method: "POST", mode: "no-cors", body });
+    setStatus("fbStatus", "ok", "Sent — thank you."); log("feedback sent");
+  } catch (e) { setStatus("fbStatus", "bad", "Couldn't send (" + (e && e.message) + "). Use Copy report instead."); log("feedback send failed: " + (e && e.message)); }
+  finally { $("fbSend").disabled = false; }
+});
+// Fallbacks: clipboard first; if the browser blocks it, offer a .txt download.
+$("copyBtn").addEventListener("click", async () => {
+  fbRefresh();
+  try { await navigator.clipboard.writeText($("fbPreview").value); setStatus("fbStatus", "ok", "Copied."); }
+  catch { const d = $("s-feedback").querySelector("details.sent"); d.open = true; const ta = $("fbPreview"); ta.focus(); ta.select(); setStatus("fbStatus", "bad", "Couldn't copy automatically: the text is selected, use Copy — or Download report."); }
+});
+$("reportDlBtn").addEventListener("click", () => {
+  fbRefresh();
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([$("fbPreview").value], { type: "text/plain" }));
+  a.download = "bass-shake-report.txt"; document.body.append(a); a.click(); a.remove();
+  setStatus("fbStatus", "ok", "Report download started.");
+});
+
 // ------------------------------------------------------------------ misc ----------
-function setBusy(b) { $("previewBtn").disabled = $("exportBtn").disabled = $("file").disabled = b || !S.curve; $("file").disabled = b; }
+function setBusy(b) { $("previewBtn").disabled = $("exportBtn").disabled = b || !S.curve; $("file").disabled = b; }
 function setStatus(id, cls, text) { const el = $(id); el.className = "status" + (cls ? " " + cls : ""); el.textContent = text; }
 function fail(id, what, e) { setStatus(id, "bad", what + " failed: " + (e && e.message)); log(what.toUpperCase() + " FAILED: " + (e && (e.stack || e.message))); }
 
 buildControls();
+setPreviewStart(0);
 drawPlot();
 window.__ready = true;
 log("ready");

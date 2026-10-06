@@ -8,9 +8,10 @@
 //
 // The one deliberate generalisation: the reference is 30 fps only. Here the frame rate is a
 // parameter. Anything defined in SECONDS (analysis windows, norm window) follows time; the
-// ring-down is rescaled so it decays at the same rate per SECOND; the oscillation stays
-// locked to FRAMES (15 Hz at 30 fps = flip every frame), because that per-frame alternation
-// is the look. At exactly 30 fps every rescaling is the identity.
+// ring-down is rescaled so it decays at the same rate per SECOND; the oscillation ("rate", Hz)
+// follows TIME too (BASSAPP-002: the 60 fps "slow" look = the 30 fps "fast" look), capped at
+// half the frame rate (= flip every frame; anything faster would alias). At exactly 30 fps
+// every rescaling is the identity.
 
 export const NFFT = 8192, HOP = 256;     // 5.4 Hz bins at 44.1k. Not free: see SOP-03.
 export const F_MAX_COMPUTE = 500;        // not a parameter; bounds the sum for compute only
@@ -21,7 +22,8 @@ export const REF_FPS = 30;               // the reference generator's frame rate
 export const REF_H = 1920, REF_W = 1080; // reference frame (portrait); px are in these units
 
 // Shared by every preset (the shipped model, VIDEO-004 BLENDS).
-export const BASE = { p: 4.0, fMin: 25, gamma: 0.5, decay: 0.40, normWindow: 4, knee: 0.5, t: 0.0, rate: 15 };
+export const BASE = { p: 4.0, fMin: 25, gamma: 0.5, decay: 0.40, normWindow: 4, knee: 0.5, t: 0.0, rate: 15, shutter: 180 };
+// shutter (deg, 0-180) is render-only: it never changes the curve (see blurRange).
 // The BLENDS palette (eye-approved and posted). K = peak px, blurK = motion-blur
 // exaggeration, blurSustain = smear driven by bass level.
 export const PRESETS = [
@@ -188,9 +190,9 @@ export function synth(E, P, fps = { num: 30, den: 1 }) {
   for (let i = 0; i < n; i++) amp[i] = K * Math.pow(e[i], gamma);
 
   // Cosine phase accumulator (NOT sine: at 15 Hz/30 fps a sine samples every zero crossing).
-  // Frame-locked: dphase is per FRAME, as at 30 fps.
+  // By TIME, capped at Nyquist (fps/2 = flip every frame).
   const dy = new Float64Array(n);
-  let phase = 0; const dphase = 2 * Math.PI * rate / REF_FPS;
+  let phase = 0; const dphase = 2 * Math.PI * wobbleHz(rate, fps) / fpsF;
   for (let i = 0; i < n; i++) { dy[i] = amp[i] * Math.cos(phase); phase += dphase; }
   dy[0] = 0; dy[n - 1] = 0;                         // must return home: no snap at the end
 
@@ -205,6 +207,24 @@ export function synth(E, P, fps = { num: 30, den: 1 }) {
   blur[0] = 0; blur[n - 1] = 0;
   let peak = 0; for (let i = 0; i < n; i++) peak = Math.max(peak, Math.abs(dy[i]));
   return { amp, dy, rot, blur, peak };
+}
+
+// The oscillation frequency actually used: the requested Hz, capped at half the frame rate.
+// At exactly 30 fps this returns `rate` unchanged for rate <= 15 (the reference's range).
+export function wobbleHz(rate, fps = { num: 30, den: 1 }) {
+  const nyq = fps.num / (2 * fps.den);
+  return Math.min(rate, nyq);
+}
+
+// Motion blur on screen, per frame, in px (any unit, as long as all three agree):
+// a SHUTTER trail back towards the previous frame's position (shutterDeg/360 of the move,
+// physical: 180 deg = half a frame interval) plus a centred directional smear of length
+// `smear` (the curve's blur: taste exaggeration + bass smear). Returns the range of offsets
+// [lo, hi] relative to dy over which copies of the frame are averaged. The image's
+// centroid sits at dy + (lo + hi) / 2 = dy + trail / 2.
+export function blurRange(dyPrev, dy, smear, shutterDeg = 180) {
+  const trail = (shutterDeg / 360) * (dyPrev - dy);
+  return { lo: Math.min(0, trail) - smear / 2, hi: Math.max(0, trail) + smear / 2, trail };
 }
 
 // DERIVED overscan (Scale, %) for a W x H frame: the rotated + translated bounding box,

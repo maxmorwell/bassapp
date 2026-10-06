@@ -10,8 +10,9 @@ plain HTML + ES modules, served as-is by GitHub Pages.
 | File | Role |
 |---|---|
 | `index.html` | The page. A small classic script sets up the report log first, so even a failed module load is reported. |
-| `css/app.css` | Styles. Light/dark via tokens. |
-| `js/app.js` | UI and media: load clip → decode its audio → analyse → curve → render (preview / export) → save. |
+| `css/app.css` | Styles. Dark "club" look: treated bass-cone photo (`img/bg-cone.jpg`, Pexels, free licence), amber accent, fade column. |
+| `js/app.js` | UI and media: load clip → decode its audio → analyse → curve → render (preview / export) → save; feedback box. |
+| `js/controls.js` | What the sliders SHOW vs the model values: 0–100 % / real-unit mappings, marks, presets as chips. Pure, tested by `tests/controls.mjs`. |
 | `js/shake.js` | **The model.** Pure maths, no DOM. Golden-tested against the reference generator. |
 | `vendor/mediabunny-1.61.3.min.mjs` | Video/audio demux, decode, encode, mux (MPL-2.0, licence alongside). Hosted here, not from a CDN — the CDN load took ~11 s on a phone. |
 
@@ -28,10 +29,11 @@ plain HTML + ES modules, served as-is by GitHub Pages.
    the whole-clip curve by its source time, so the preview cannot differ from the export.
    - px scale: reference px × (long side / 1920).
    - Zoom (overscan): derived from the curve for the actual output size (`overscanFor`).
-   - Blur: averaged copies of the frame (≤ 10) spread over a directional smear (the curve's
-     `blur`, centred) plus a shutter trail half-way back to the previous frame's position
-     (shutter angle 180°). The image's centroid therefore sits at `dy + trail/2` — the e2e
-     pixel check compares against that.
+   - Blur: averaged copies of the frame (≤ 12) spread over a directional smear (the curve's
+     `blur`, centred) plus a shutter trail back towards the previous frame's position:
+     `shutter/360` of the move (`blurRange` in shake.js; 180° = half). The image's centroid
+     therefore sits at `dy + trail/2` — the e2e pixel check compares against that.
+   - Output size by the SHORTER side: 720p / 1080p (default) / Original; never upscales.
    - Trimmed renders (preview) restart timestamps at 0 and clamp the first frame to 0; the
      preview starts mid-frame and the first frame's true time is read from the file
      (`EncodedPacketSink.getPacket`).
@@ -41,17 +43,41 @@ plain HTML + ES modules, served as-is by GitHub Pages.
 ## Frame rates
 
 The reference generator is 30 fps only. Here: anything in seconds follows time; the ring-down
-is rescaled to the same decay per second; the oscillation stays frame-locked (15 Hz at 30 fps =
-flip every frame). At exactly 30 fps all of these are the identity — that is what the golden
-test's per-frame identity checks.
+is rescaled to the same decay per second; the oscillation (Wobble: Fast 15 / Slow 7.5 /
+Ultra-slow 3.75 Hz) follows time too, capped at half the frame rate (= flip every frame; at
+25 fps Fast is 12.5 Hz). At exactly 30 fps all of these are the identity — that is what the
+golden test's per-frame identity checks.
+
+## Controls (controls.js)
+
+Display only; the model keeps real values. Main: Strength 0–100 % → K = 100·s^1.5 ref px;
+Wobble (stepped); Motion blur 0–40 % = shutter 0–180°, 40–100 % = extra blur
+blurK = 1.0·x^1.5; Bass smear → blurSustain = 1.2·s^1.5. Advanced: Ring-down in ms (time for
+an isolated hit's shake to fall to 1/10 at gamma 0.5; exact to within a frame for ≥ 100 ms);
+Respond to → p = 6 − 5·r (readout ~Hz = 90th percentile of the weighted bass energy in four
+real mixes — an orientation aid); Threshold → t; Dynamics → gamma, 0.5 in the middle
+(0.25…1.5, log steps); Soften peaks → knee = 1 − 0.7·k; Context → normWindow s. Low cut is fixed
+at 25 Hz (not in the UI). A preset sets real values exactly; sliders snap to the nearest step.
 
 ## Tests
 
 ```
 python3 tests/golden.py            # model vs reference generator (needs tests/reference/, see its README)
 python3 tests/golden.py --quick    # 48 kHz synthetic signals only (~1 min)
-python3 tests/e2e.py clip.webm ... # the page in headless Chromium (Playwright)
+node tests/controls.mjs            # every control's mapping and its effect on the curve (~3 s)
+python3 tests/make_synth.py        # synthetic e2e clips + tex.pgm into /tmp/bassapp-clips
+python3 tests/e2e.py clip.webm ... # the page in headless Chromium (Playwright); --set id=value, --size 720p
+python3 tests/pixel_controls.py    # e2e under different settings; controls checked on rendered pixels (~6 min)
 ```
+
+**controls.mjs**: slider↔model round trips, monotonic "more effect to the right", presets,
+then each control on synthetic sounds with known answers: Strength scales shake and blur
+together; Wobble frequency exact at 25/29.97/30/60 fps; Motion blur span rises, sharp at 0;
+Bass smear only during held bass; Ring-down ms measured on isolated hits; Respond to shifts
+weight from 35 Hz to 90 Hz; Threshold drops soft hits; Dynamics, Soften peaks, Context.
+
+**pixel_controls.py**: Strength, Motion blur (0/40/100 %), Bass smear, Ultra-slow at 60 fps,
+Fast at 25 fps and 720p output, measured on the output pixels of the synthetic clips.
 
 **golden.py**: synthetic signals (kicks at 160 BPM, descending 808 glides, tone bursts with a
 loud middle, a mix with hats and an 800 Hz melody, near-silence) at 48 and 44.1 kHz, × the 7

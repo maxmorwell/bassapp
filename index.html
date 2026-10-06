@@ -1,96 +1,103 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Bass Shake (test build)</title>
+<meta name="description" content="Bass shake for your videos: the picture moves with the bass, like the camera is sitting on the speaker. Runs on your device; nothing is uploaded.">
+<meta name="theme-color" content="#0b0a0d">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,500..800&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@112..125,500;112..125,800&family=IBM+Plex+Sans:wght@400;500&family=IBM+Plex+Mono:wght@400;500&display=swap">
 <link rel="stylesheet" href="css/app.css">
 </head><body>
-<div class="wrap">
+<div class="bg" aria-hidden="true"></div>
+<div class="scrim" aria-hidden="true"></div>
+<main class="app">
   <header>
     <h1>Bass Shake</h1>
-    <div class="build" id="build"></div>
-    <p class="lede">Adds an audio-reactive bass shake to a video — the camera looks like it's sitting on the speaker. Everything happens on this device. Test build.</p>
+    <p class="tag">Makes your video move with the bass, like the camera is sitting on the speaker. Runs on this device. Nothing is uploaded.</p>
+    <span class="build" id="build"></span>
   </header>
 
-  <section>
-    <h2><span class="n">1</span>Choose a clip</h2>
-    <label class="file"><span class="small">Your file stays on this device. Nothing is uploaded. The clip's own sound drives the shake.</span>
-      <input type="file" id="file" accept="video/*,.mov,.mp4,.m4v,.webm">
-    </label>
-    <dl id="info"><dt>clip</dt><dd>none loaded</dd></dl>
+  <section id="s-clip">
+    <h2><span class="n">1</span>Clip</h2>
+    <div class="file">
+      <label class="btn" for="file">Choose video</label>
+      <input type="file" id="file" accept="video/*,.mov,.mp4,.m4v,.webm" class="vh">
+      <span class="name" id="clipName">no clip yet</span>
+    </div>
+    <p class="note">The clip's own sound drives the shake.</p>
     <progress id="anaProg" value="0" max="1" hidden></progress>
-    <div class="status" id="anaStatus"></div>
-    <div class="row" id="support"></div>
+    <div class="status" id="anaStatus" role="status"></div>
   </section>
 
-  <section>
-    <h2><span class="n">2</span>Shake settings</h2>
-    <div class="ctl"><label for="preset">Preset</label><select id="preset"></select><span></span></div>
-    <div id="mainCtls"></div>
-    <details id="more"><summary>More controls</summary><div id="moreCtls"></div>
-      <div class="row"><button id="resetBtn" class="secondary small-btn">Reset to preset</button></div>
+  <section id="s-shake">
+    <h2><span class="n">2</span>Shake</h2>
+    <div class="sub" id="presetLbl">Preset</div>
+    <div class="chips" role="group" aria-labelledby="presetLbl" id="chips"></div>
+    <p class="note">A preset sets the sliders below. Move any slider to fine-tune and it becomes Custom.</p>
+    <div class="ctl" id="mainCtls"></div>
+    <div class="curve"><canvas id="plot" aria-label="The shake over the whole clip. Tap to move the preview section."></canvas></div>
+    <p class="note small" id="curveNote">Shaded: the preview section. Tap the curve to move it.</p>
+    <details class="adv" id="adv"><summary class="sub">Advanced · 6</summary>
+      <div class="ctl" id="advCtls"></div>
     </details>
-    <canvas id="plot" height="130" aria-label="Shake over the whole clip. Tap to choose where the preview starts."></canvas>
-    <div class="status" id="curveStatus">Load a clip to see the shake curve.</div>
   </section>
 
-  <section>
+  <section id="s-preview">
     <h2><span class="n">3</span>Preview</h2>
-    <div class="ctl"><label for="pstart">Start at</label><input type="range" id="pstart" min="0" max="0" step="0.1" value="0"><output id="pstartOut">0.0 s</output></div>
-    <p class="small">Tap the curve above to jump there. The preview is rendered through exactly the same path as the export, then played.</p>
-    <div class="row"><button id="previewBtn" disabled>Render preview</button></div>
+    <div class="ctl" id="prevCtls"></div>
+    <div class="actions"><button class="btn primary" id="previewBtn" type="button" disabled>Render preview</button></div>
     <progress id="previewProg" value="0" max="1" hidden></progress>
-    <div class="status" id="previewStatus"></div>
+    <div class="status" id="previewStatus" role="status"></div>
     <video id="previewVid" controls playsinline hidden></video>
   </section>
 
-  <section>
-    <h2><span class="n">4</span>Export and save</h2>
-    <label class="row small"><input type="checkbox" id="fullres"> Keep full resolution (otherwise the long side is capped at 1920 px)</label>
-    <p class="small notice" id="keepOpen" hidden>Keep this page open and on screen until it finishes. Switching apps or locking the phone stops the export.</p>
-    <div class="row"><button id="exportBtn" disabled>Export full video</button><button id="cancelBtn" class="secondary" hidden>Cancel</button></div>
+  <section id="s-export">
+    <h2><span class="n">4</span>Export</h2>
+    <div class="row seg-row"><label id="sizeLbl">Output size</label><span class="hint">shorter dimension</span><span></span>
+      <div class="seg" role="group" aria-labelledby="sizeLbl" id="sizeSeg"></div></div>
+    <p class="note notice" id="keepOpen" hidden>Keep this page open and on screen until it finishes. Switching apps or locking the phone stops the export.</p>
+    <div class="actions"><button class="btn" id="exportBtn" type="button" disabled>Export full video</button><button class="btn quiet" id="cancelBtn" type="button" hidden>Cancel</button></div>
     <progress id="exportProg" value="0" max="1" hidden></progress>
-    <div class="status" id="exportStatus"></div>
-    <div class="row"><button id="shareBtn" hidden>Save to Photos / Share</button><button id="downloadBtn" class="secondary" hidden>Download</button></div>
-    <div class="status" id="saveStatus"></div>
+    <div class="status" id="exportStatus" role="status"></div>
+    <div class="actions"><button class="btn primary" id="shareBtn" type="button" hidden>Save to Photos / Share</button><button class="btn" id="downloadBtn" type="button" hidden>Download</button></div>
+    <div class="status" id="saveStatus" role="status"></div>
   </section>
 
-  <section>
-    <h2><span class="n">5</span>Report back</h2>
-    <p class="small">For testing: this records what happened, including any errors. Copy it, or download it as a text file, and send it over.</p>
-    <textarea id="log" readonly></textarea>
-    <div class="row"><button id="copyBtn" class="secondary">Copy report</button><button id="reportDlBtn" class="secondary">Download report</button><span class="status" id="copyStatus"></span></div>
+  <section id="s-feedback" class="feedback">
+    <h2>Feedback</h2>
+    <p class="note">Test build — tell us how it went. Sends only when you tap Send, and only what's listed below: never your video or its sound.</p>
+    <div class="row seg-row"><label id="fbWorkedLbl">Did it work?</label><span class="hint"></span><span></span>
+      <div class="seg" role="group" aria-labelledby="fbWorkedLbl" id="fbWorked"></div></div>
+    <div class="row seg-row"><label id="fbLookLbl">How did the shake look?</label><span class="hint"></span><span></span>
+      <div class="seg" role="group" aria-labelledby="fbLookLbl" id="fbLook"></div></div>
+    <label class="fb-text"><span>Anything else?</span><textarea id="fbText" rows="3" placeholder="What you liked, what was off, what you'd change"></textarea></label>
+    <label class="check"><input type="checkbox" id="fbReport" checked> Include technical report <span class="hint">settings, device, browser, timings</span></label>
+    <details class="sent"><summary class="sub">What will be sent</summary><textarea id="fbPreview" readonly rows="10"></textarea></details>
+    <div class="actions"><button class="btn primary" id="fbSend" type="button">Send</button><button class="btn quiet" id="copyBtn" type="button">Copy report</button><button class="btn quiet" id="reportDlBtn" type="button">Download report</button></div>
+    <div class="status" id="fbStatus" role="status"></div>
+    <textarea id="log" readonly hidden></textarea>
   </section>
-</div>
+
+  <footer class="foot"><span id="buildFoot"></span></footer>
+</main>
 
 <script>
 // Classic script: runs even if the module below fails to load, so errors still reach the report.
-window.BUILD = "v1-0.1 · 2026-10-06 10:38";
-document.getElementById("build").textContent = "build " + window.BUILD;
+window.BUILD = "v2-0.1 · 2026-10-06 15:45";
+document.getElementById("build").textContent = "test build " + window.BUILD;
+document.getElementById("buildFoot").textContent = "build " + window.BUILD;
 window.__log = [];
 window.log = function (msg) {
   const line = "[" + (performance.now() / 1000).toFixed(2) + "s] " + msg;
   window.__log.push(line);
   const ta = document.getElementById("log");
   ta.value = window.__log.join("\n");
-  ta.scrollTop = ta.scrollHeight;
+  if (window.__onLog) window.__onLog();
 };
 log("build " + window.BUILD);
 log("UA " + navigator.userAgent);
+log("screen " + screen.width + "x" + screen.height + " @" + (window.devicePixelRatio || 1) + "x");
 log("WebCodecs: VideoEncoder=" + (typeof VideoEncoder) + " VideoDecoder=" + (typeof VideoDecoder) + " AudioEncoder=" + (typeof AudioEncoder) + " AudioDecoder=" + (typeof AudioDecoder));
 window.addEventListener("error", e => log("ERROR " + (e.message || e)));
 window.addEventListener("unhandledrejection", e => log("REJECTION " + (e.reason && (e.reason.stack || e.reason.message) || e.reason)));
-// Report: clipboard first; if the browser blocks it, select the text and offer a .txt download.
-document.getElementById("copyBtn").addEventListener("click", async () => {
-  const ta = document.getElementById("log"), st = document.getElementById("copyStatus");
-  try { await navigator.clipboard.writeText(ta.value); st.textContent = "Copied."; }
-  catch { ta.focus(); ta.select(); ta.setSelectionRange(0, ta.value.length); st.textContent = "Couldn't copy automatically: the text is selected, use Copy — or Download report."; }
-});
-document.getElementById("reportDlBtn").addEventListener("click", () => {
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(new Blob([document.getElementById("log").value], { type: "text/plain" }));
-  a.download = "bass-shake-report.txt"; document.body.append(a); a.click(); a.remove();
-  document.getElementById("copyStatus").textContent = "Report download started.";
-});
 try { if (sessionStorage.getItem("bs_export_running")) { sessionStorage.removeItem("bs_export_running"); window.__lastExportInterrupted = true; log("previous export did not finish (page closed or reloaded mid-export)"); } } catch {}
 </script>
 <script type="module" src="js/app.js"></script>

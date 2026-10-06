@@ -1,0 +1,229 @@
+// shake.js — the bass-shake model. Pure maths, no DOM: runs in the browser and in Node
+// (the golden test imports this exact file).
+//
+// A port of the VIDEO project's reference generator, bass_shake_gen.py. The golden test
+// (tests/golden.py) checks that, at 30 fps, every curve here matches the reference per frame.
+// Do not change the maths here without re-running it. Parameter meanings, status
+// (derived / fitted / taste) and defaults come from the VIDEO project's SOP-03 register.
+//
+// The one deliberate generalisation: the reference is 30 fps only. Here the frame rate is a
+// parameter. Anything defined in SECONDS (analysis windows, norm window) follows time; the
+// ring-down is rescaled so it decays at the same rate per SECOND; the oscillation stays
+// locked to FRAMES (15 Hz at 30 fps = flip every frame), because that per-frame alternation
+// is the look. At exactly 30 fps every rescaling is the identity.
+
+export const NFFT = 8192, HOP = 256;     // 5.4 Hz bins at 44.1k. Not free: see SOP-03.
+export const F_MAX_COMPUTE = 500;        // not a parameter; bounds the sum for compute only
+export const SPEC_F_LO = 10;             // lowest bin we keep (f_min slider goes down to 15)
+export const NORM_FLOOR = 0.15;          // guard: rolling reference >= this x global max
+export const ROT_PER_PX = 0.0375;        // CALIBRATED deg/px (a fit, not physics)
+export const REF_FPS = 30;               // the reference generator's frame rate
+export const REF_H = 1920, REF_W = 1080; // reference frame (portrait); px are in these units
+
+// Shared by every preset (the shipped model, VIDEO-004 BLENDS).
+export const BASE = { p: 4.0, fMin: 25, gamma: 0.5, decay: 0.40, normWindow: 4, knee: 0.5, t: 0.0, rate: 15 };
+// The BLENDS palette (eye-approved and posted). K = peak px, blurK = motion-blur
+// exaggeration, blurSustain = smear driven by bass level.
+export const PRESETS = [
+  { name: "Slam",      K: 26, blurK: 0.18, blurSustain: 0.35 },
+  { name: "Punch",     K: 26, blurK: 0.10, blurSustain: 0.18 },
+  { name: "Swell",     K: 18, blurK: 0.26, blurSustain: 0.50 },
+  { name: "Nudge",     K: 18, blurK: 0.10, blurSustain: 0.18 },
+  { name: "Breath",    K: 12, blurK: 0.08, blurSustain: 0.15 },
+  { name: "Slam slow", K: 26, blurK: 0.18, blurSustain: 0.35, rate: 7.5 },
+  { name: "Slam hard", K: 34, blurK: 0.18, blurSustain: 0.35 },
+];
+export function presetParams(i) { return Object.assign({}, BASE, PRESETS[i]); }
+
+// Python semantics, so integer arithmetic matches the reference exactly.
+const floorDiv = (a, b) => Math.floor(a / b);
+const ceilDiv = (a, b) => -Math.floor(-a / b);
+export function pyRound(x) {                       // round half to even, like Python 3
+  const r = Math.round(x);
+  return (Math.abs(x % 1) === 0.5 && r % 2 !== 0) ? r - 1 : r;
+}
+
+// ------------------------------------------------------------------ FFT -----------
+// Real FFT of length N via one complex FFT of length N/2. Only the bins we need are
+// unpacked. Float64 throughout.
+function makeFFT(M) {                               // complex radix-2, size M
+  const levels = Math.log2(M);
+  if (!Number.isInteger(levels)) throw new Error("FFT size must be a power of 2");
+  const rev = new Uint32Array(M);
+  for (let i = 0; i < M; i++) { let r = 0, x = i; for (let b = 0; b < levels; b++) { r = (r << 1) | (x & 1); x >>= 1; } rev[i] = r; }
+  const cos = new Float64Array(M / 2), sin = new Float64Array(M / 2);
+  for (let i = 0; i < M / 2; i++) { cos[i] = Math.cos(2 * Math.PI * i / M); sin[i] = Math.sin(2 * Math.PI * i / M); }
+  return function (re, im) {                        // in place, forward (e^-i)
+    for (let i = 0; i < M; i++) { const j = rev[i]; if (j > i) { let t = re[i]; re[i] = re[j]; re[j] = t; t = im[i]; im[i] = im[j]; im[j] = t; } }
+    for (let size = 2; size <= M; size <<= 1) {
+      const half = size >> 1, step = M / size;
+      for (let i = 0; i < M; i += size) {
+        for (let j = i, k = 0; j < i + half; j++, k += step) {
+          const l = j + half;
+          const tre = re[l] * cos[k] + im[l] * sin[k];
+          const tim = -re[l] * sin[k] + im[l] * cos[k];
+          re[l] = re[j] - tre; im[l] = im[j] - tim;
+          re[j] += tre; im[j] += tim;
+        }
+      }
+    }
+  };
+}
+
+// np.hanning: symmetric Hann, 0.5 - 0.5 cos(2 pi n / (N-1))
+function hann(N) { const w = new Float64Array(N); for (let n = 0; n < N; n++) w[n] = 0.5 - 0.5 * Math.cos(2 * Math.PI * n / (N - 1)); return w; }
+
+// ------------------------------------------------------------- analysis -----------
+// STFT power spectrum of the WHOLE track, kept only for bins in [SPEC_F_LO, F_MAX_COMPUTE].
+// Windows start at sample k*HOP (the reference's hop grid with slice start 0).
+// Expensive part; done once per file. Everything after this is cheap.
+export async function analyseAudio(x, sr, { onProgress, yieldEvery = 256 } = {}) {
+  const M = NFFT / 2;
+  const fft = makeFFT(M);
+  const win = hann(NFFT);
+  const klo = Math.ceil(SPEC_F_LO * NFFT / sr), khi = Math.floor(F_MAX_COMPUTE * NFFT / sr);
+  const nb = khi - klo + 1;
+  const nHops = x.length >= NFFT ? 1 + floorDiv(x.length - NFFT, HOP) : 0;
+  const spec = new Float64Array(nHops * nb);
+  const re = new Float64Array(M), im = new Float64Array(M);
+  const tw = new Float64Array(2 * nb);              // e^{-2 pi i k / N} for the bins we keep
+  for (let b = 0; b < nb; b++) { const k = klo + b; tw[2 * b] = Math.cos(2 * Math.PI * k / NFFT); tw[2 * b + 1] = -Math.sin(2 * Math.PI * k / NFFT); }
+  for (let h = 0; h < nHops; h++) {
+    const s = h * HOP;
+    for (let n = 0; n < M; n++) { re[n] = x[s + 2 * n] * win[2 * n]; im[n] = x[s + 2 * n + 1] * win[2 * n + 1]; }
+    fft(re, im);
+    for (let b = 0; b < nb; b++) {
+      const k = klo + b, mk = (M - k) % M;
+      const zr = re[k], zi = im[k], cr = re[mk], ci = -im[mk];     // Z[k], conj(Z[M-k])
+      const er = 0.5 * (zr + cr), ei = 0.5 * (zi + ci);            // even part
+      const or_ = 0.5 * (zr - cr), oi = 0.5 * (zi - ci);           // odd part (times -i below)
+      const wr = tw[2 * b], wi = tw[2 * b + 1];
+      // X[k] = E + (-i) * W * O
+      const pr = wr * or_ - wi * oi, pi = wr * oi + wi * or_;
+      const xr = er + pi, xi = ei - pr;
+      spec[h * nb + b] = xr * xr + xi * xi;
+    }
+    if (h % yieldEvery === yieldEvery - 1) {
+      if (onProgress) onProgress((h + 1) / nHops);
+      await new Promise(r => setTimeout(r, 0));
+    }
+  }
+  if (onProgress) onProgress(1);
+  return { sr, klo, khi, nb, nHops, spec, nSamples: x.length };
+}
+
+// 1/f^p weighted energy, peak-held down to the video frame rate.
+// fps is a rational {num, den} so integer sample arithmetic stays exact (30 = {30,1}).
+export function energyPerFrame(an, nFrames, fps, offsetSec, p, fMin) {
+  const { sr, klo, nb, nHops, spec } = an;
+  const wgt = new Float64Array(nb);
+  for (let b = 0; b < nb; b++) { const f = (klo + b) * sr / NFFT; wgt[b] = (f >= fMin && f <= F_MAX_COMPUTE) ? Math.pow(f, -p) : 0; }
+  const fine = new Float64Array(nHops);
+  for (let h = 0; h < nHops; h++) { let s = 0; const o = h * nb; for (let b = 0; b < nb; b++) s += spec[o + b] * wgt[b]; fine[h] = s; }
+  const base = pyRound(offsetSec * sr) - NFFT / 2;   // window-delay compensation
+  const out = new Float64Array(nFrames);
+  for (let i = 0; i < nFrames; i++) {
+    const smp0 = base + floorDiv(i * sr * fps.den, fps.num);
+    const smp1 = base + floorDiv((i + 1) * sr * fps.den, fps.num);
+    const a = Math.max(floorDiv(smp0, HOP), 0);
+    const b = Math.min(Math.max(ceilDiv(smp1, HOP), a + 1), nHops);
+    let m = 0;
+    if (b > a) { m = -Infinity; for (let k = a; k < b; k++) if (fine[k] > m) m = fine[k]; }
+    out[i] = m;
+  }
+  return out;
+}
+
+// --------------------------------------------------------------- synthesis --------
+function maxOf(a) { let m = -Infinity; for (let i = 0; i < a.length; i++) if (a[i] > m) m = a[i]; return m; }
+function normMax(E) { const m = maxOf(E); const o = new Float64Array(E.length); for (let i = 0; i < E.length; i++) o[i] = m > 0 ? E[i] / m : E[i]; return o; }
+
+function strikeAndRing(E, decay) {
+  const e = normMax(E), n = e.length;
+  const A = new Float64Array(n);
+  let acc = 0;
+  for (let i = 0; i < n; i++) {
+    const onset = Math.max(0, e[i] - (i === 0 ? e[0] : e[i - 1]));
+    acc = Math.max(onset, acc * decay);          // peak-hold, not additive
+    A[i] = acc;
+  }
+  return normMax(A);
+}
+
+function softCeiling(x, knee) {
+  const o = new Float64Array(x.length);
+  for (let i = 0; i < x.length; i++) {
+    if (knee >= 1) o[i] = Math.min(1, x[i]);
+    else o[i] = x[i] > knee ? knee + (1 - knee) * Math.tanh((x[i] - knee) / (1 - knee)) : x[i];
+  }
+  return o;
+}
+
+function adaptiveNormalise(A, windowS, knee, fpsF) {
+  if (windowS == null) return softCeiling(normMax(A), knee);
+  const n = A.length, w = Math.trunc(windowS * fpsF), g = maxOf(A);
+  const r = new Float64Array(n);
+  for (let i = 0; i < n; i++) {
+    let m = -Infinity; const lo = Math.max(0, i - w), hi = Math.min(n, i + w + 1);
+    for (let k = lo; k < hi; k++) if (A[k] > m) m = A[k];
+    m = Math.max(m, NORM_FLOOR * g);
+    r[i] = A[i] / Math.max(m, 1e-12);
+  }
+  return softCeiling(r, knee);
+}
+
+// E -> per-frame curves, in reference px (frame 1920 high). Returns
+// { amp, dy, rot, blur, peak } — rot in degrees. fps = {num, den}.
+export function synth(E, P, fps = { num: 30, den: 1 }) {
+  const n = E.length, fpsF = fps.num / fps.den;
+  const { K, gamma, rate, t = 0, decay = null, normWindow = null, blurSustain = 0, knee = 1, blurK = 0.18 } = P;
+  let e;
+  if (decay != null) {
+    const d = (fps.num === REF_FPS * fps.den) ? decay : Math.pow(decay, REF_FPS / fpsF);  // same decay per second
+    e = strikeAndRing(E, d);
+  } else e = normMax(E);
+  e = adaptiveNormalise(e, normWindow, knee, fpsF);
+  if (t > 0) for (let i = 0; i < n; i++) e[i] = Math.max(0, (e[i] - t) / (1 - t));
+  const amp = new Float64Array(n);
+  for (let i = 0; i < n; i++) amp[i] = K * Math.pow(e[i], gamma);
+
+  // Cosine phase accumulator (NOT sine: at 15 Hz/30 fps a sine samples every zero crossing).
+  // Frame-locked: dphase is per FRAME, as at 30 fps.
+  const dy = new Float64Array(n);
+  let phase = 0; const dphase = 2 * Math.PI * rate / REF_FPS;
+  for (let i = 0; i < n; i++) { dy[i] = amp[i] * Math.cos(phase); phase += dphase; }
+  dy[0] = 0; dy[n - 1] = 0;                         // must return home: no snap at the end
+
+  const rot = new Float64Array(n), blur = new Float64Array(n);
+  const lvl = normMax(E);
+  for (let i = 0; i < n; i++) {
+    rot[i] = ROT_PER_PX * dy[i];
+    const d = Math.abs(dy[i] - (i === 0 ? dy[0] : dy[i - 1]));
+    blur[i] = blurK * d;                             // (1) motion blur exaggeration
+    if (blurSustain > 0) blur[i] = blur[i] + blurSustain * K * lvl[i];  // (2) sustain smear
+  }
+  blur[0] = 0; blur[n - 1] = 0;
+  let peak = 0; for (let i = 0; i < n; i++) peak = Math.max(peak, Math.abs(dy[i]));
+  return { amp, dy, rot, blur, peak };
+}
+
+// DERIVED overscan (Scale, %) for a W x H frame: the rotated + translated bounding box,
+// max over frames, rounded UP to 0.1 %. pxScale converts reference px to output px.
+export function overscanFor(dy, rot, W = REF_W, H = REF_H, pxScale = 1) {
+  let need = 1;
+  for (let i = 0; i < dy.length; i++) {
+    const th = Math.abs(rot[i] * Math.PI / 180), c = Math.cos(th), s = Math.sin(th);
+    const hh = H + 2 * Math.abs(dy[i] * pxScale);
+    need = Math.max(need, (W * c + hh * s) / W, (W * s + hh * c) / H);
+  }
+  return Math.ceil(need * 1000) / 10;
+}
+
+// Snap a measured average frame rate to a standard rational one (within 0.5 %).
+export function snapFps(f) {
+  const std = [[24000, 1001], [24, 1], [25, 1], [30000, 1001], [30, 1], [50, 1], [60000, 1001], [60, 1], [120, 1]];
+  let best = null, bd = Infinity;
+  for (const [num, den] of std) { const d = Math.abs(f - num / den) / (num / den); if (d < bd) { bd = d; best = { num, den }; } }
+  if (bd < 0.005) return best;
+  return { num: Math.round(f * 1000), den: 1000 };
+}

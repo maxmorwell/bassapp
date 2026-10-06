@@ -3,3 +3,5 @@ node_modules/
 *.mov
 *.wav
 *.webm
+tests/reference/*
+!tests/reference/README.md

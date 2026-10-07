@@ -21,8 +21,9 @@ export const WOBBLE = [["Fast", 15], ["Slow", 7.5]];   // Hz, by time (Ultra-slo
 // lies below this frequency. Measured on four real club mixes (the VIDEO project's EDIT 01-04
 // audio), Welch spectra 25-500 Hz, geometric mean across tracks; rounded to 5 Hz when shown.
 // An approximation for orientation only: the model is the 1/f^p weighting, unchanged.
-const RESP_P = [1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5, 5.5, 6];
-const RESP_HZ = [90, 76, 64, 62, 56, 53, 51, 49, 48, 48, 45];
+const RESP_P = [0.7, 0.8, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5, 5.5, 6, 8, 10, 14, 20];
+const RESP_HZ = [111, 103, 90, 76, 64, 62, 56, 53, 51, 49, 48, 48, 45, 40, 39, 34, 31];
+export const RESP_PMAX = 20, RESP_PMIN = 0.7;
 export function respondHz(p) {
   if (p <= RESP_P[0]) return RESP_HZ[0];
   for (let i = 1; i < RESP_P.length; i++) if (p <= RESP_P[i]) {
@@ -76,8 +77,10 @@ export const ADVANCED = [
     fromModel: P => msFromDecay(P.decay),
     show: ms => Math.round(ms) + " ms" },
   { id: "respond", label: "Respond to", hint: "", min: 0, max: 100, step: 1, scale: ["sub only", "kick + bass"],
-    toModel: r => ({ p: 6 - 5 * r / 100 }),
-    fromModel: P => 100 * (6 - P.p) / 5,
+    // p on a log scale from 20 (~30 Hz, sub only) to 0.7 (~110 Hz, kick + bass); the shipped p = 4
+    // sits near the middle (48 %). Range widened BASSAPP-004 (was p 6..1 = ~45..90 Hz).
+    toModel: r => ({ p: Math.exp(Math.log(RESP_PMAX) + (Math.log(RESP_PMIN) - Math.log(RESP_PMAX)) * r / 100) }),
+    fromModel: P => 100 * (Math.log(P.p) - Math.log(RESP_PMAX)) / (Math.log(RESP_PMIN) - Math.log(RESP_PMAX)),
     show: (r, P) => "~" + 5 * Math.round(respondHz(P.p) / 5) + " Hz" },
   { id: "threshold", label: "Threshold", hint: "", min: 0, max: 60, step: 1, scale: ["off", "% of the loudest nearby"],
     toModel: v => ({ t: v / 100 }),

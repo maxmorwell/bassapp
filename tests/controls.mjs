@@ -66,7 +66,6 @@ check(mono(range(50, 350, 61).map(s => ctl("ring").toModel(s).decay), 1, true), 
 check(mono(range(0, 100, 101).map(s => ctl("respond").toModel(s).p), -1, true), "respond to: right = flatter weighting (lower p)");
 check(Math.abs(ctl("dynamics").toModel(50).gamma - 0.5) < 1e-12, "dynamics: natural (gamma 0.5) exactly in the middle");
 check(mono(range(0, 100, 101).map(s => ctl("dynamics").toModel(s).gamma), 1, true), "dynamics: right = more expanded (higher gamma)");
-check(ctl("soften").toModel(0).knee === 1 && mono(range(0, 100, 101).map(s => ctl("soften").toModel(s).knee), -1, true), "soften peaks: 0 = hard limit (knee 1), more = lower knee");
 console.log("  presets (slider positions after snapping to steps; real values kept exactly until a slider moves):");
 for (const name of UI_PRESETS) {
   const P = presetModel(name);
@@ -129,7 +128,7 @@ for (const fk of [30, 60, 25]) {
   const fps = FPS[fk], fpsF = fps.num / fps.den, rows = [];
   let ok = true;
   for (const ms of [50, 100, 170, 250, 350]) {
-    const P = withSlider(withSlider(withSlider(slam, "ring", ms), "soften", 0), "context", 10), c = curve("sparse", P, fps);
+    const P = Object.assign(withSlider(withSlider(slam, "ring", ms), "context", 10), { knee: 1 }), c = curve("sparse", P, fps);
     const hits = [];
     for (let k = 1; k < 5; k++) {                     // kicks 2..5 (away from the ends)
       const a = Math.round((0.5 + 2 * k - 0.1) * fpsF), b = Math.round((0.5 + 2 * k + 1.5) * fpsF);
@@ -168,28 +167,18 @@ for (const fk of [30, 60, 25]) {
 {
   const xs = [0, 25, 50, 75, 100], ratio = [];
   for (const d of xs) {
-    const c = curve("loudsoft", withSlider(withSlider(withSlider(slam, "dynamics", d), "context", 10), "soften", 0));
+    const c = curve("loudsoft", Object.assign(withSlider(withSlider(slam, "dynamics", d), "context", 10), { knee: 1 }));
     const pk = k => Math.max(...c.amp.slice(Math.round((0.4 + k) * 30), Math.round((0.9 + k) * 30)));
     ratio.push(mean([1, 3, 5, 7, 9].map(pk)) / mean([2, 4, 6, 8, 10].map(pk)));
   }
   check(mono(ratio, -1, true), "dynamics: towards 'expanded' the soft hits shrink relative to the loud", ratio.map(f2).join(" "));
 }
-// Soften peaks: only the top is touched
-{
-  const xs = [0, 25, 50, 71, 100], top = [], softRatio = [];
-  for (const k of xs) {
-    const c = curve("loudsoft", withSlider(withSlider(slam, "soften", k), "context", 10));
-    const pk = j => Math.max(...c.amp.slice(Math.round((0.4 + j) * 30), Math.round((0.9 + j) * 30)));
-    top.push(c.peak / slam.K); softRatio.push(mean([1, 3, 5, 7, 9].map(pk)) / mean([2, 4, 6, 8, 10].map(pk)));
-  }
-  check(Math.abs(top[0] - 1) < 1e-9 && mono(top, -1, true), "soften peaks: off = full height (hard limit); stronger = the top comes down", top.map(f2).join(" "));
-  check(mono(softRatio, 1), "soften peaks: soft hits gain relative to loud (top squashed, not the rest)", softRatio.map(f2).join(" "));
-}
+check(!ALL.some(c => c.id === "soften"), "soften peaks removed from the controls (knee stays at the preset value)");
 // Context: a quiet section after a loud one
 {
   const xs = [1, 2, 4, 6, 10], ratio = [];
   for (const v of xs) {
-    const c = curve("sections", withSlider(withSlider(slam, "context", v), "soften", 0));
+    const c = curve("sections", Object.assign(withSlider(slam, "context", v), { knee: 1 }));
     const sec = (a, b) => { const r = []; for (let k = a; k < b; k++) r.push(Math.max(...c.amp.slice(Math.round((0.4 + k) * 30), Math.round((0.9 + k) * 30)))); return mean(r); };
     ratio.push(sec(11, 15) / sec(1, 6));             // quiet (well inside its half) vs loud
   }

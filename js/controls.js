@@ -68,6 +68,8 @@ export const MAIN = [
     show: s => pct(s) },
 ];
 
+// "Soften peaks" (knee) removed BASSAPP-004: the level is already normalised to the loudest bass
+// nearby, so the soft ceiling only trimmed the top ~9 % at most. knee stays at the preset value (0.5).
 export const ADVANCED = [
   { id: "ring", label: "Ring-down", hint: "how long hits keep shaking", min: 50, max: 350, step: 5,
     toModel: ms => ({ decay: decayFromMs(ms) }),
@@ -87,10 +89,6 @@ export const ADVANCED = [
     toModel: d => ({ gamma: d <= 50 ? 0.5 * Math.pow(2, (d - 50) / 50) : 0.5 * Math.pow(3, (d - 50) / 50) }),
     fromModel: P => P.gamma <= 0.5 ? 50 + 50 * Math.log2(P.gamma / 0.5) : 50 + 50 * Math.log(P.gamma / 0.5) / Math.log(3),
     show: d => d < 44 ? "compressed" : d > 56 ? "expanded" : "natural" },
-  { id: "soften", label: "Soften peaks", hint: "", min: 0, max: 100, step: 1, scale: ["off", "strong"],
-    toModel: k => ({ knee: 1 - 0.7 * k / 100 }),           // 0 = hard limit (knee 1), 100 = knee 0.3
-    fromModel: P => 100 * (1 - P.knee) / 0.7,
-    show: k => Math.round(k) === 0 ? "off" : pct(k) },
   { id: "context", label: "Context", hint: "time window that sets ‘loud’", min: 1, max: 10, step: 0.5,
     toModel: v => ({ normWindow: v }),
     fromModel: P => P.normWindow,

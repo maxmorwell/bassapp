@@ -56,8 +56,8 @@ blurK = 1.0·x^1.5; Bass smear → blurSustain = 1.2·s^1.5. Advanced: Ring-down
 an isolated hit's shake to fall to 1/10 at gamma 0.5; exact to within a frame for ≥ 100 ms);
 Respond to → p = 6 − 5·r (readout ~Hz = 90th percentile of the weighted bass energy in four
 real mixes — an orientation aid); Threshold → t; Dynamics → gamma, 0.5 in the middle
-(0.25…1.5, log steps); Soften peaks → knee = 1 − 0.7·k; Context → normWindow s. Low cut is fixed
-at 25 Hz (not in the UI). A preset sets real values exactly; sliders snap to the nearest step.
+(0.25…1.5, log steps); Context → normWindow s. Low cut is fixed
+at 25 Hz and the soft ceiling (knee) at 0.5 — neither in the UI (Soften peaks removed: almost no effect). A preset sets real values exactly; sliders snap to the nearest step.
 
 ## Tests
 
@@ -74,7 +74,7 @@ python3 tests/pixel_controls.py    # e2e under different settings; controls chec
 then each control on synthetic sounds with known answers: Strength scales shake and blur
 together; Wobble frequency exact at 25/29.97/30/60 fps; Motion blur span rises, sharp at 0;
 Bass smear only during held bass; Ring-down ms measured on isolated hits; Respond to shifts
-weight from 35 Hz to 90 Hz; Threshold drops soft hits; Dynamics, Soften peaks, Context.
+weight from 35 Hz to 90 Hz; Threshold drops soft hits; Dynamics, Context.
 
 **pixel_controls.py**: Strength, Motion blur (0/40/100 %), Bass smear, Ultra-slow at 60 fps,
 Fast at 25 fps and 720p output, measured on the output pixels of the synthetic clips.

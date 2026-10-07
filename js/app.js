@@ -244,8 +244,8 @@ function paramsChanged(why) {
 }
 
 // The plot: detected bass (input, grey), shake (response, amber), blur (response, white).
-// Superimposed by default; ?plot=stacked shows them as three rows (for comparison).
-const PLOT_STACKED = /[?&]plot=stacked/.test(location.search);
+// Three stacked rows, each on its own scale.
+const PLOT_STACKED = true;   // Manager chose stacked (BASSAPP-004); superimposed code kept below for now
 if (PLOT_STACKED) document.querySelector(".curve").classList.add("stacked");
 function colRange(arr, px, W, n, f) {           // per pixel column: f over the frames it covers
   const a = Math.floor(px / W * n), b = Math.max(a + 1, Math.floor((px + 1) / W * n));

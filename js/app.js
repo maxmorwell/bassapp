@@ -228,11 +228,14 @@ function paramsChanged(why) {
   let E = S.Ecache.get(key);
   if (!E) { E = energyPerFrame(S.an, m.nFrames, m.fps, S.offsetSec, P.p, P.fMin); S.Ecache.set(key, E); }
   S.curve = synth(E, P, m.fps);
+  // Detected bass for the plot (the INPUT): the 1/f^p-weighted energy, as an amplitude
+  // (square root of power), scaled to its own peak. Only "Respond to" changes it.
+  { let mx = 0; for (let i = 0; i < E.length; i++) mx = Math.max(mx, E[i]); const b = new Float64Array(E.length); if (mx > 0) for (let i = 0; i < E.length; i++) b[i] = Math.sqrt(E[i] / mx); S.curve.bass = b; }
   const moving = S.curve.dy.reduce((n, v) => n + (Math.abs(v) > 1 ? 1 : 0), 0) / m.nFrames;
   const { w, h } = outputSize();
   const ov = overscanFor(S.curve.dy, S.curve.rot, w, h, Math.max(w, h) / REF_H);
   S.curve.overscan = ov;
-  $("curveNote").textContent = "Shaded: the preview section. Tap the curve to move it. Zoom " + fmt(ov, 1) + "% hides the edges.";
+  $("curveNote").textContent = (PLOT_STACKED ? "" : "Grey: the bass · amber: the shake · white: blur. ") + "Shaded: the preview section; tap to move it. Zoom " + fmt(ov, 1) + "% hides the edges.";
   drawPlot();
   const msg = "curve" + (why ? " (" + why + ")" : "") + ": preset " + S.preset + ", sliders " + JSON.stringify(S.sliders) + ", model " + JSON.stringify(P) +
     " -> peak " + fmt(S.curve.peak, 2) + " ref px, wobble " + fmt(wobbleHz(P.rate, m.fps), 2) + " Hz, moving " + Math.round(moving * 100) + "%, overscan " + ov;
@@ -240,36 +243,64 @@ function paramsChanged(why) {
   if (why) log(msg); else logTimer = setTimeout(() => log(msg), 600);   // sliders: log once they settle
 }
 
+// The plot: detected bass (input, grey), shake (response, amber), blur (response, white).
+// Superimposed by default; ?plot=stacked shows them as three rows (for comparison).
+const PLOT_STACKED = /[?&]plot=stacked/.test(location.search);
+if (PLOT_STACKED) document.querySelector(".curve").classList.add("stacked");
+function colRange(arr, px, W, n, f) {           // per pixel column: f over the frames it covers
+  const a = Math.floor(px / W * n), b = Math.max(a + 1, Math.floor((px + 1) / W * n));
+  return f(arr, a, Math.min(b, n));
+}
+const colMax = (arr, a, b) => { let m = 0; for (let i = a; i < b; i++) m = Math.max(m, arr[i]); return m; };
+const colLoHi = (arr, a, b) => { let lo = 0, hi = 0; for (let i = a; i < b; i++) { lo = Math.min(lo, arr[i]); hi = Math.max(hi, arr[i]); } return [lo, hi]; };
 function drawPlot() {
   const c = $("plot"), dpr = window.devicePixelRatio || 1;
   const W = Math.max(100, Math.round(c.clientWidth * dpr)), H = Math.max(40, Math.round(c.clientHeight * dpr));
   if (c.width !== W) c.width = W; if (c.height !== H) c.height = H;
   const g = c.getContext("2d"); g.clearRect(0, 0, W, H);
   const cs = getComputedStyle(document.documentElement);
-  const accent = cs.getPropertyValue("--accent").trim(), muted = cs.getPropertyValue("--muted").trim();
-  if (!S.curve || !S.meta) { g.fillStyle = muted; g.font = (12 * dpr) + "px " + cs.getPropertyValue("--mono"); g.fillText("no clip yet", 10 * dpr, H / 2 + 4 * dpr); return; }
-  const { dy, blur } = S.curve, n = dy.length, fpsF = S.meta.fpsF;
+  const accent = cs.getPropertyValue("--accent").trim(), muted = cs.getPropertyValue("--muted").trim(), mono = cs.getPropertyValue("--mono");
+  if (!S.curve || !S.meta) { g.fillStyle = muted; g.font = (12 * dpr) + "px " + mono; g.fillText("no clip yet", 10 * dpr, H / 2 + 4 * dpr); return; }
+  const { dy, blur, bass } = S.curve, n = dy.length, fpsF = S.meta.fpsF;
   // preview section, shaded
   const ps = Number($("c_pstart").value);
   const x0 = (ps * fpsF) / n * W, x1 = Math.min(W, ((ps + S.previewLen) * fpsF) / n * W);
   g.fillStyle = accent; g.globalAlpha = 0.14; g.fillRect(x0, 0, Math.max(2, x1 - x0), H); g.globalAlpha = 1;
-  const scale = (H / 2 - 6 * dpr) / Math.max(30, S.curve.peak);
-  g.strokeStyle = "rgba(255,255,255,.18)"; g.lineWidth = dpr; g.beginPath(); g.moveTo(0, H / 2); g.lineTo(W, H / 2); g.stroke();
-  // shake: per pixel column, the range of dy
-  g.fillStyle = accent;
-  for (let px = 0; px < W; px++) {
-    const a = Math.floor(px / W * n), b = Math.max(a + 1, Math.floor((px + 1) / W * n));
-    let lo = 0, hi = 0; for (let i = a; i < b && i < n; i++) { lo = Math.min(lo, dy[i]); hi = Math.max(hi, dy[i]); }
-    if (hi - lo > 0.2) g.fillRect(px, H / 2 - hi * scale, 1, Math.max(1, (hi - lo) * scale));
+  const pad = 3 * dpr;
+  // Shake and blur share one px scale (both are movement on screen), so their sizes compare.
+  const shakeScale = h => (h / 2 - pad) / Math.max(30, S.curve.peak);
+  const bassArea = (top, h, mirrored) => {        // grey filled area, scaled to its own peak
+    g.fillStyle = "rgba(255,255,255,.16)";
+    for (let px = 0; px < W; px++) {
+      const v = colRange(bass, px, W, n, colMax) * (mirrored ? h / 2 - pad : h - 2 * pad);
+      if (v > 0.3) mirrored ? g.fillRect(px, top + h / 2 - v, 1, 2 * v) : g.fillRect(px, top + h - pad - v, 1, v);
+    }
+  };
+  const shakeBand = (top, h) => {
+    const sc = shakeScale(h), mid = top + h / 2;
+    g.strokeStyle = "rgba(255,255,255,.18)"; g.lineWidth = dpr; g.beginPath(); g.moveTo(0, mid); g.lineTo(W, mid); g.stroke();
+    g.fillStyle = accent;
+    for (let px = 0; px < W; px++) { const [lo, hi] = colRange(dy, px, W, n, colLoHi); if (hi - lo > 0.2) g.fillRect(px, mid - hi * sc, 1, Math.max(1, (hi - lo) * sc)); }
+  };
+  const blurLine = (bottom, sc) => {
+    g.strokeStyle = "rgba(255,255,255,.9)"; g.lineWidth = 2 * dpr; g.lineJoin = "round"; g.beginPath();
+    for (let px = 0; px < W; px++) { const y = bottom - colRange(blur, px, W, n, colMax) * sc; px ? g.lineTo(px, y) : g.moveTo(px, y); }
+    g.stroke();
+  };
+  if (!PLOT_STACKED) {
+    bassArea(0, H, true);
+    shakeBand(0, H);
+    blurLine(H - pad, shakeScale(H) * 0.5);          // on top
+  } else {
+    const h = H / 3;
+    bassArea(0, h, false);
+    shakeBand(h, h);
+    blurLine(3 * h - pad, (h - 2 * pad) / Math.max(15, colMax(blur, 0, n)));   // own scale, like the bass row
+    g.strokeStyle = "rgba(255,255,255,.12)"; g.lineWidth = dpr;
+    for (const y of [h, 2 * h]) { g.beginPath(); g.moveTo(0, y); g.lineTo(W, y); g.stroke(); }
+    g.fillStyle = muted; g.font = (10 * dpr) + "px " + mono;
+    [["bass", 0], ["shake", h], ["blur", 2 * h]].forEach(([t, y]) => g.fillText(t, 4 * dpr, y + 11 * dpr));
   }
-  // blur as a thin line along the bottom
-  g.strokeStyle = muted; g.globalAlpha = 0.6; g.lineWidth = dpr; g.beginPath();
-  for (let px = 0; px < W; px++) {
-    const a = Math.floor(px / W * n), b = Math.max(a + 1, Math.floor((px + 1) / W * n));
-    let m = 0; for (let i = a; i < b && i < n; i++) m = Math.max(m, blur[i]);
-    const y = H - 2 * dpr - m * scale * 0.5; px ? g.lineTo(px, y) : g.moveTo(px, y);
-  }
-  g.stroke(); g.globalAlpha = 1;
 }
 $("plot").addEventListener("click", e => {
   if (!S.meta) return;

@@ -89,6 +89,7 @@ h2::after{content:"";flex:1;height:1px;align-self:center;background:rgba(255,255
 
 .curve{height:96px;border:1px solid var(--line);border-radius:4px;background:rgba(0,0,0,.35);overflow:hidden;cursor:pointer}
 .curve canvas{display:block;width:100%;height:100%}
+.curve.stacked{height:150px}
 .adv{padding-top:2px}
 .adv summary{cursor:pointer;list-style-position:inside}
 .adv summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}

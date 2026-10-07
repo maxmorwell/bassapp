@@ -34,7 +34,7 @@
     <p class="note">A preset sets the sliders below. Move any slider to fine-tune and it becomes Custom.</p>
     <div class="ctl" id="mainCtls"></div>
     <div class="curve"><canvas id="plot" aria-label="The shake over the whole clip. Tap to move the preview section."></canvas></div>
-    <p class="note small" id="curveNote">Shaded: the preview section. Tap the curve to move it.</p>
+    <p class="note small" id="curveNote">Grey: the bass · amber: the shake · white: blur. Shaded: the preview section; tap to move it.</p>
     <details class="adv" id="adv"><summary class="sub">Advanced · 6</summary>
       <div class="ctl" id="advCtls"></div>
     </details>
@@ -81,7 +81,7 @@
 
 <script>
 // Classic script: runs even if the module below fails to load, so errors still reach the report.
-window.BUILD = "v2-0.3 · 2026-10-07 21:25";
+window.BUILD = "v2-0.4 · 2026-10-07 21:40";
 document.getElementById("build").textContent = "test build " + window.BUILD;
 document.getElementById("buildFoot").textContent = "build " + window.BUILD;
 window.__log = [];

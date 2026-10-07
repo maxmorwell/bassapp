@@ -424,9 +424,14 @@ $("exportBtn").addEventListener("click", async () => {
     const name = S.file.name.replace(/\.[^.]+$/, "") + " - bass shake.mp4";
     S.out = { blob: r.blob, name, file: new File([r.blob], name, { type: "video/mp4" }) };
     setStatus("exportStatus", "ok", "Done: " + r.w + "×" + r.h + ", " + r.frames + " frames, " + mb(r.blob.size) + ", " + fmt(S.meta.dur / r.secs, 2) + "× real time.");
+    // Phones/tablets: share sheet ("Save Video" -> Photos) + plain download. Desktop: one
+    // "Save video" button that downloads (the desktop share panel has no Photos option).
     const canShare = !!(navigator.canShare && navigator.canShare({ files: [S.out.file] }));
-    log("share sheet with file: " + (canShare ? "available" : "not available"));
-    $("shareBtn").hidden = !canShare; $("downloadBtn").hidden = false;
+    const mobile = IS_MOBILE && canShare;
+    log("share sheet with file: " + (canShare ? "available" : "not available") + ", " + (IS_MOBILE ? "phone/tablet" : "desktop") + " -> " + (mobile ? "share + download" : "download only"));
+    $("shareBtn").hidden = !mobile; $("downloadBtn").hidden = false;
+    $("downloadBtn").textContent = mobile ? "Download" : "Save video";
+    $("downloadBtn").classList.toggle("primary", !mobile);
   } catch (e) {
     if (hiddenDuringRun) {
       setStatus("exportStatus", "bad", "Interrupted — the page went into the background, which stops the export. Keep it open and on screen, then export again.");
@@ -444,6 +449,9 @@ $("cancelBtn").addEventListener("click", () => { if (S.running) { S.running.canc
 
 // ------------------------------------------------------------------- save ---------
 const inClaudeFrame = !!(window.claude && window.claude.use);
+// iPadOS reports a Mac user agent: a touch-capable "Macintosh" is an iPad.
+const IS_MOBILE = (navigator.userAgentData && navigator.userAgentData.mobile) || /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) ||
+  (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
 $("shareBtn").addEventListener("click", async () => {
   if (!S.out) return;
   try {
@@ -459,7 +467,7 @@ $("downloadBtn").addEventListener("click", () => {
   const a = document.createElement("a"); a.href = URL.createObjectURL(S.out.blob); a.download = S.out.name;
   document.body.append(a); a.click(); a.remove();
   if (inClaudeFrame) setStatus("saveStatus", "bad", "Saving may be blocked inside Claude's preview — use the live site.");
-  else setStatus("saveStatus", "ok", "Download started. On iPhone it goes to Files › Downloads.");
+  else setStatus("saveStatus", "ok", IS_MOBILE ? "Download started. On iPhone it goes to Files › Downloads." : "Saved to your Downloads folder.");
   log("download started" + (inClaudeFrame ? " (inside Claude's frame)" : ""));
 });
 

@@ -473,7 +473,7 @@ $("downloadBtn").addEventListener("click", () => {
 
 // --------------------------------------------------------------- feedback ---------
 // Shows exactly what will be sent; sends only on tap; never video or audio. File names are
-// replaced with "clip.<ext>" so nothing personal goes with the report.
+// replaced with "[name removed].<ext>" so nothing personal goes with the report.
 const FB_WORKED = ["Yes", "Partly", "No"], FB_LOOK = ["Great", "OK", "Not right"];
 function fbSeg(boxId, opts, key) {
   const box = $(boxId);
@@ -485,7 +485,7 @@ function fbSeg(boxId, opts, key) {
 }
 function redact(text) {
   let t = text;
-  for (const n of S.names) { const ext = (n.match(/\.[^.]+$/) || [""])[0]; const stem = n.replace(/\.[^.]+$/, ""); t = t.split(n).join("clip" + ext); if (stem.length >= 4) t = t.split(stem).join("clip"); }
+  for (const n of S.names) { const ext = (n.match(/\.[^.]+$/) || [""])[0]; const stem = n.replace(/\.[^.]+$/, ""); t = t.split(n).join("[name removed]" + ext); if (stem.length >= 4) t = t.split(stem).join("[name removed]"); }
   return t;
 }
 function technicalReport() {

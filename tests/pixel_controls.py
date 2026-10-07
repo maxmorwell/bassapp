@@ -11,7 +11,7 @@ shake vs curve incl. the shutter trail). On top, comparing runs:
   Motion blur 0 % -> 40 % (natural) -> 100 % (extra): moving frames get progressively softer;
              at 0 % moving frames are as sharp as still ones
   Bass smear 0 % vs 100 %: the held-bass stretch gets softer
-  Wobble     Ultra-slow at 60 fps and Fast at 25 fps still track the curve on the pixels
+  Wobble     Slow at 60 fps and Fast at 25 fps still track the curve on the pixels
   Output size 720p gives a 720-wide portrait output
 """
 import argparse, json, os, subprocess, sys
@@ -24,7 +24,7 @@ RUNS = [  # tag, clip, extra args
     ("blur40", "synth_30", ["--set", "blur=40", "--set", "smear=0"]),
     ("blur100", "synth_30", ["--set", "blur=100", "--set", "smear=0"]),
     ("smear100", "synth_30", ["--set", "blur=0", "--set", "smear=100"]),
-    ("ultra60", "synth_60", ["--set", "wobble=2"]),
+    ("slow60", "synth_60", ["--set", "wobble=1"]),
     ("fast25", "synth_25", []),
     ("size720", "synth_2997", ["--size", "720p"]),
 ]
@@ -64,7 +64,7 @@ def main():
     if {"blur0", "smear100"} <= S.keys():
         chk(S["smear100"]["sharp_held"] < 0.9 * S["blur0"]["sharp_held"], "bass smear 100%: the held-bass stretch gets softer",
             "%.2f vs %.2f" % (S["smear100"]["sharp_held"], S["blur0"]["sharp_held"]))
-    for k in ("ultra60", "fast25"):
+    for k in ("slow60", "fast25"):
         if k in S: chk(S[k]["corr"] > 0.9 and S[k]["lag"] == 0, k + ": shake on the pixels tracks the curve", "corr %.3f, lag %d" % (S[k]["corr"], S[k]["lag"]))
     if "size720" in S:
         chk(min(S["size720"]["out_w"], S["size720"]["out_h"]) == 720, "output size 720p = shorter side 720", "%dx%d" % (S["size720"]["out_w"], S["size720"]["out_h"]))

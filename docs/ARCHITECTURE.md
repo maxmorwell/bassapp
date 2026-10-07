@@ -43,8 +43,7 @@ plain HTML + ES modules, served as-is by GitHub Pages.
 ## Frame rates
 
 The reference generator is 30 fps only. Here: anything in seconds follows time; the ring-down
-is rescaled to the same decay per second; the oscillation (Wobble: Fast 15 / Slow 7.5 /
-Ultra-slow 3.75 Hz) follows time too, capped at half the frame rate (= flip every frame; at
+is rescaled to the same decay per second; the oscillation (Wobble: Fast 15 / Slow 7.5 Hz) follows time too, capped at half the frame rate (= flip every frame; at
 25 fps Fast is 12.5 Hz). At exactly 30 fps all of these are the identity — that is what the
 golden test's per-frame identity checks.
 
@@ -76,7 +75,7 @@ together; Wobble frequency exact at 25/29.97/30/60 fps; Motion blur span rises, 
 Bass smear only during held bass; Ring-down ms measured on isolated hits; Respond to shifts
 weight from 35 Hz to 90 Hz; Threshold drops soft hits; Dynamics, Context.
 
-**pixel_controls.py**: Strength, Motion blur (0/40/100 %), Bass smear, Ultra-slow at 60 fps,
+**pixel_controls.py**: Strength, Motion blur (0/40/100 %), Bass smear, Slow at 60 fps,
 Fast at 25 fps and 720p output, measured on the output pixels of the synthetic clips.
 
 **golden.py**: synthetic signals (kicks at 160 BPM, descending 808 glides, tone bursts with a

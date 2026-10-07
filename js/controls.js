@@ -15,7 +15,7 @@ export const BLURK_MAX = 1.0;       // extra motion blur at 100 %; v1 max 0.4
 export const SMEAR_MAX = 1.2;       // bass smear at 100 %; v1 max 0.6
 export const BLUR_MARK = 40;        // Motion blur slider: 0..40 = realistic shutter 0..180 deg; 40..100 = extra
 export const CURVE = 1.5;           // power curve for the % sliders (50 % ~ a third of the range)
-export const WOBBLE = [["Fast", 15], ["Slow", 7.5], ["Ultra-slow", 3.75]];   // Hz, by time
+export const WOBBLE = [["Fast", 15], ["Slow", 7.5]];   // Hz, by time (Ultra-slow 3.75 dropped BASSAPP-004: too slow to read as bass)
 
 // "Respond to" readout: in a typical mix, ~90 % of the bass energy the shake responds to
 // lies below this frequency. Measured on four real club mixes (the VIDEO project's EDIT 01-04

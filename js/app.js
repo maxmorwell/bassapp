@@ -2,7 +2,7 @@
 // The model lives in shake.js (golden-tested against the reference generator); what the
 // sliders show vs the model values lives in controls.js (per-control tested).
 import { analyseAudio, energyPerFrame, synth, overscanFor, snapFps, blurRange, wobbleHz, REF_H } from "./shake.js";
-import { MAIN, ADVANCED, ALL, UI_PRESETS, presetModel, sliderFor, WOBBLE } from "./controls.js";
+import { MAIN, ADVANCED, ALL, UI_PRESETS, presetModel, sliderFor, WOBBLE, TYPICAL_MIX, respondHz } from "./controls.js";
 
 const log = window.log;
 const $ = id => document.getElementById(id);
@@ -92,13 +92,18 @@ function buildControls() {
     chips.append(b);
   }
   for (const [list, box] of [[MAIN, $("mainCtls")], [ADVANCED, $("advCtls")]]) for (const c of list) {
-    sliderRow(c, box, v => {
+    const row = sliderRow(c, box, v => {
       S.sliders[c.id] = v;
       Object.assign(S.params, c.toModel(v));
       S.preset = "Custom";
       syncControls(); paramsChanged(null);
       if (c.seg) log("set " + c.id + " = " + c.seg[v] + " -> " + JSON.stringify(c.toModel(v)));
     });
+    if (c.id === "respond") {                       // little plot of what the shake listens to
+      const cvs = document.createElement("canvas"); cvs.id = "respPlot"; cvs.className = "mini";
+      cvs.setAttribute("aria-label", "Which bass frequencies drive the shake, in a typical mix");
+      row.insertBefore(cvs, row.querySelector(".track"));
+    }
   }
   // Preview: start + length (seconds, real units)
   sliderRow({ id: "pstart", label: "Start at", hint: "or tap the curve", min: 0, max: 0, step: 0.1 }, $("prevCtls"), v => setPreviewStart(v));
@@ -127,7 +132,38 @@ function syncControls() {
     if (c.seg) { $("c_" + c.id).querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", String(Number(b.dataset.i) === v))); continue; }
     paintSlider(c.id, v, c.show(v, S.params));
   }
+  drawRespond();
 }
+// "Respond to" mini plot. x: 25-200 Hz (log). Grey line: a typical mix's bass (amplitude).
+// Amber: the same after the 1/f^p weighting, i.e. what the shake responds to (own peak = full
+// height). Dashed mark: the ~N Hz readout (90 % of the weighted energy lies below it).
+function drawRespond() {
+  const c = $("respPlot"); if (!c) return;
+  const dpr = window.devicePixelRatio || 1, W = Math.max(100, Math.round(c.clientWidth * dpr)), H = Math.max(30, Math.round(c.clientHeight * dpr));
+  if (c.width !== W) c.width = W; if (c.height !== H) c.height = H;
+  const g = c.getContext("2d"); g.clearRect(0, 0, W, H);
+  const cs = getComputedStyle(document.documentElement), accent = cs.getPropertyValue("--accent").trim(), muted = cs.getPropertyValue("--muted").trim();
+  const p = S.params.p, f0 = 25, f1 = 200, top = 4 * dpr, base = H - 14 * dpr;
+  const X = f => (Math.log(f / f0) / Math.log(f1 / f0)) * W;
+  const pts = TYPICAL_MIX.map(([f, pw]) => [f, Math.sqrt(pw), Math.sqrt(pw * Math.pow(f, -p))]);
+  const wmax = Math.max(...pts.map(q => q[2]));
+  const Y = v => base - v * (base - top);
+  g.beginPath(); g.moveTo(X(pts[0][0]), base);
+  for (const [f, , w] of pts) g.lineTo(X(f), Y(w / wmax));
+  g.lineTo(X(pts[pts.length - 1][0]), base); g.closePath();
+  g.fillStyle = accent; g.globalAlpha = 0.75; g.fill(); g.globalAlpha = 1;
+  g.beginPath(); pts.forEach(([f, a], i) => i ? g.lineTo(X(f), Y(a)) : g.moveTo(X(f), Y(a)));
+  g.strokeStyle = "rgba(255,255,255,.55)"; g.lineWidth = 1.5 * dpr; g.stroke();
+  const hz = respondHz(p), xm = X(hz);
+  g.setLineDash([3 * dpr, 3 * dpr]); g.strokeStyle = "rgba(255,255,255,.8)"; g.lineWidth = dpr;
+  g.beginPath(); g.moveTo(xm, top); g.lineTo(xm, base); g.stroke(); g.setLineDash([]);
+  g.strokeStyle = "rgba(255,255,255,.25)"; g.beginPath(); g.moveTo(0, base); g.lineTo(W, base); g.stroke();
+  g.fillStyle = muted; g.font = (10 * dpr) + "px " + cs.getPropertyValue("--mono"); g.textBaseline = "bottom";
+  for (const f of [30, 50, 100, 200]) { const x = X(f); g.textAlign = f === 200 ? "right" : "center"; g.fillText(f === 200 ? "200 Hz" : String(f), Math.min(W - 1, x), H); }
+}
+window.addEventListener("resize", () => drawRespond());
+$("adv").addEventListener("toggle", () => drawRespond());
+
 function syncOutSize() { for (const b of $("sizeSeg").children) b.setAttribute("aria-pressed", String(Number(b.dataset.px) === S.outSize)); }
 
 // --------------------------------------------------------------- loading ---------

@@ -116,7 +116,7 @@ def main():
             # --- plot message + row scaling for reduced / no bass (BASSAPP-005)
             pm = pg.evaluate("""() => { const S = window.__app; return { label: document.getElementById('plot').getAttribute('aria-label'),
                  note: document.getElementById('bassNote').textContent, peak: S.curve.peak, full: S.curve.fullPeak } }""")
-            want = "" if c["gain"] >= 0.995 else ("There is pretty much no bass in this clip" if c["gain"] == 0 else "There is not much bass in this clip")
+            want = "" if c["gain"] >= 0.6 else ("There is pretty much no bass in this clip" if c["gain"] == 0 else "There is not much bass in this clip")
             got = pm["label"].split("preview section.")[-1].strip().rstrip(".")
             print("  plot message: %r (line under clip: %r); shake peak %.2f of unreduced %.2f" % (got, pm["note"], pm["peak"], pm["full"]))
             if got != want or pm["note"] != "": ok_all = False; print("  FAIL plot message (want %r)" % want)

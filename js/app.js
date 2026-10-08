@@ -363,8 +363,9 @@ function drawPlot() {
   }
 }
 // Bass presence message for the plot (Manager, BASSAPP-004). Empty when the shake is not reduced.
+const BASS_MSG_BELOW = 0.6;   // show the message only when the shake is cut below 60 % (Manager, BASSAPP-005)
 function bassMessage() {
-  if (!S.an || S.bassGain >= 0.995) return "";
+  if (!S.an || S.bassGain >= BASS_MSG_BELOW) return "";
   return S.bassGain === 0 ? "There is pretty much no bass in this clip" : "There is not much bass in this clip";
 }
 $("plot").addEventListener("click", e => {

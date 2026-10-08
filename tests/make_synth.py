@@ -91,6 +91,14 @@ def main():
                     "-t", str(a.dur), "-c:v", "libvpx-vp9", "-b:v", "4M", "-deadline", "realtime", "-cpu-used", "8", "-pix_fmt", "yuv420p",
                     "-c:a", "libopus", "-b:a", "128k", out], check=True)
     os.remove(wav); print("wrote", out)
+    # Reduced-bass clips (bass presence gate partly on): the 30 fps bass mix turned down under the no-bass mix.
+    # 0.15 -> share ~6 %, gain ~0.04; 0.3 -> share ~20 %, gain ~0.95. Not "synth*": no pixel-shake check.
+    for v in ("0.15", "0.3"):
+        out = os.path.join(a.out, "lowbass_%s.webm" % v)
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", os.path.join(a.out, "synth_30.webm"), "-i", os.path.join(a.out, "nobass.webm"),
+                        "-filter_complex", "[0:a]volume=%s[a0];[1:a][a0]amix=inputs=2:normalize=0[a]" % v,
+                        "-map", "0:v", "-map", "[a]", "-c:v", "copy", "-c:a", "libopus", out], check=True)
+        print("wrote", out)
     print("wrote", pgm)
 
 

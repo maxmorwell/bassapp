@@ -247,10 +247,8 @@ async function analyse(aTrack, dur) {
   const gShare = bassGain(S.bassShare), gLevel = levelGain(S.bassPeak);
   S.bassGain = Math.min(gShare, gLevel);
   log("bass share " + fmt(100 * S.bassShare, 1) + "% (gain " + fmt(gShare, 2) + "), loudest bass " + fmt(S.bassPeak, 1) + " dB (gain " + fmt(gLevel, 2) + ") -> shake gain " + fmt(S.bassGain, 2));
-  const why = gLevel <= gShare ? "is very quiet" : "has little bass (" + Math.round(100 * S.bassShare) + "% of the sound)";
-  setStatus("bassNote", "", S.bassGain >= 0.995 ? "" : S.bassGain === 0
-    ? "This clip " + why + ", so there's no shake."
-    : "This clip " + why + ", so the shake is reduced to " + Math.round(100 * S.bassGain) + "%. Raise Strength to make up for it.");
+  // The message now sits ON the plot (drawPlot -> bassMessage); the line under the clip stays empty (Manager, BASSAPP-004).
+  setStatus("bassNote", "", "");
   // The clip's own average bass spectrum (25-200 Hz, finer + smoothed), for the Frequency response plot.
   try { S.clipSpec = displaySpectrum(x, sr); } catch (e) { S.clipSpec = null; log("display spectrum failed: " + e.message); }
   drawRespond();
@@ -275,6 +273,10 @@ function paramsChanged(why) {
   let E = S.Ecache.get(key);
   if (!E) { E = energyPerFrame(S.an, m.nFrames, m.fps, S.offsetSec, P.p, P.fMin); S.Ecache.set(key, E); }
   S.curve = synth(E, S.bassGain < 1 ? Object.assign({}, P, { K: P.K * S.bassGain }) : P, m.fps);   // bass presence gain
+  // For the plot: the sizes the shake and blur WOULD have without the gate, so the rows shrink by the gain
+  // instead of being rescaled back up to full height.
+  if (S.bassGain < 1) { const f = synth(E, P, m.fps); S.curve.fullPeak = f.peak; S.curve.fullBlurMax = colMax(f.blur, 0, f.blur.length); }
+  else { S.curve.fullPeak = S.curve.peak; S.curve.fullBlurMax = colMax(S.curve.blur, 0, S.curve.blur.length); }
   // Detected bass for the plot (the INPUT): the 1/f^p-weighted energy, as an amplitude
   // (square root of power), scaled to its own peak. Only "Frequency response" changes it.
   { let mx = 0; for (let i = 0; i < E.length; i++) mx = Math.max(mx, E[i]); const b = new Float64Array(E.length); if (mx > 0) for (let i = 0; i < E.length; i++) b[i] = Math.sqrt(E[i] / mx); S.curve.bass = b; }
@@ -315,7 +317,7 @@ function drawPlot() {
   g.fillStyle = accent; g.globalAlpha = 0.14; g.fillRect(x0, 0, Math.max(2, x1 - x0), H); g.globalAlpha = 1;
   const pad = 3 * dpr;
   // Shake and blur share one px scale (both are movement on screen), so their sizes compare.
-  const shakeScale = h => (h / 2 - pad) / Math.max(30, S.curve.peak);
+  const shakeScale = h => (h / 2 - pad) / Math.max(30, S.curve.fullPeak ?? S.curve.peak);
   const bassArea = (top, h, mirrored) => {        // grey filled area, scaled to its own peak
     g.fillStyle = "rgba(255,255,255,.16)";
     for (let px = 0; px < W; px++) {
@@ -342,12 +344,27 @@ function drawPlot() {
     const h = H / 3;
     bassArea(0, h, false);
     shakeBand(h, h);
-    blurLine(3 * h - pad, (h - 2 * pad) / Math.max(15, colMax(blur, 0, n)));   // own scale, like the bass row
+    blurLine(3 * h - pad, (h - 2 * pad) / Math.max(15, S.curve.fullBlurMax ?? colMax(blur, 0, n)));   // own scale (unreduced), like the bass row
     g.strokeStyle = "rgba(255,255,255,.12)"; g.lineWidth = dpr;
     for (const y of [h, 2 * h]) { g.beginPath(); g.moveTo(0, y); g.lineTo(W, y); g.stroke(); }
     g.fillStyle = muted; g.font = (10 * dpr) + "px " + mono;
     [["bass", 0], ["shake", h], ["blur", 2 * h]].forEach(([t, y]) => g.fillText(t, 4 * dpr, y + 11 * dpr));
   }
+  const msg = bassMessage();
+  c.setAttribute("aria-label", "The shake over the whole clip. Tap to move the preview section." + (msg ? " " + msg + "." : ""));
+  if (msg) {                                       // on the plot, centred over the shake + blur rows
+    const top = PLOT_STACKED ? H / 3 : 0, cy = top + (H - top) / 2;
+    let fs = 13 * dpr; g.font = "600 " + fs + "px " + mono;
+    while (g.measureText(msg).width > W - 2 * 46 * dpr && fs > 9 * dpr) { fs -= dpr; g.font = "600 " + fs + "px " + mono; }
+    const tw = g.measureText(msg).width, bx = (W - tw) / 2 - 8 * dpr, bh = fs + 10 * dpr;
+    g.fillStyle = "rgba(0,0,0,.72)"; g.fillRect(bx, cy - bh / 2, tw + 16 * dpr, bh);
+    g.fillStyle = "#fff"; g.textBaseline = "middle"; g.fillText(msg, (W - tw) / 2, cy); g.textBaseline = "alphabetic";
+  }
+}
+// Bass presence message for the plot (Manager, BASSAPP-004). Empty when the shake is not reduced.
+function bassMessage() {
+  if (!S.an || S.bassGain >= 0.995) return "";
+  return S.bassGain === 0 ? "There is pretty much no bass in this clip" : "There is not much bass in this clip";
 }
 $("plot").addEventListener("click", e => {
   if (!S.meta) return;

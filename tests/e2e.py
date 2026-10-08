@@ -113,6 +113,15 @@ def main():
                  params: S.params, w: S.meta.width, h: S.meta.height, dur: S.meta.dur, gain: S.bassGain, share: S.bassShare } }""")
             dy = np.array(c["dy"]); P = dict(c["params"])
             print("  bass share %.1f%% -> shake gain %.2f" % (100 * c["share"], c["gain"]))
+            # --- plot message + row scaling for reduced / no bass (BASSAPP-005)
+            pm = pg.evaluate("""() => { const S = window.__app; return { label: document.getElementById('plot').getAttribute('aria-label'),
+                 note: document.getElementById('bassNote').textContent, peak: S.curve.peak, full: S.curve.fullPeak } }""")
+            want = "" if c["gain"] >= 0.995 else ("There is pretty much no bass in this clip" if c["gain"] == 0 else "There is not much bass in this clip")
+            got = pm["label"].split("preview section.")[-1].strip().rstrip(".")
+            print("  plot message: %r (line under clip: %r); shake peak %.2f of unreduced %.2f" % (got, pm["note"], pm["peak"], pm["full"]))
+            if got != want or pm["note"] != "": ok_all = False; print("  FAIL plot message (want %r)" % want)
+            if c["gain"] > 0 and abs(pm["peak"] - c["gain"] * pm["full"]) > 0.05 * pm["full"] + 1e-6:
+                ok_all = False; print("  FAIL reduced shake is not ~gain x unreduced")
             P["K"] = P["K"] * c["gain"]          # the page scales Strength by the bass-presence gain
             # --- 2. page curve vs reference on ffmpeg's decode of the same audio
             x = decode_audio(clip, c["sr"])

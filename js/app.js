@@ -1,7 +1,7 @@
 // app.js — the page. Load clip -> decode its audio -> analyse -> shake curve -> render.
 // The model lives in shake.js (golden-tested against the reference generator); what the
 // sliders show vs the model values lives in controls.js (per-control tested).
-import { analyseAudio, energyPerFrame, synth, overscanFor, snapFps, blurRange, wobbleHz, displaySpectrum, REF_H } from "./shake.js";
+import { analyseAudio, energyPerFrame, synth, overscanFor, snapFps, blurRange, wobbleHz, displaySpectrum, bassShare, bassGain, REF_H } from "./shake.js";
 import { MAIN, ADVANCED, ALL, UI_PRESETS, presetModel, sliderFor, WOBBLE, TYPICAL_MIX } from "./controls.js";
 
 const log = window.log;
@@ -168,10 +168,10 @@ function syncOutSize() { for (const b of $("sizeSeg").children) b.setAttribute("
 // --------------------------------------------------------------- loading ---------
 $("file").addEventListener("change", async () => {
   const file = $("file").files[0];
-  S.file = file; S.meta = null; S.an = null; S.clipSpec = null; S.Ecache.clear(); S.curve = null; S.out = null;
+  S.file = file; S.meta = null; S.an = null; S.clipSpec = null; S.bassShare = null; S.bassGain = 1; S.Ecache.clear(); S.curve = null; S.out = null;
   for (const id of ["shareBtn", "downloadBtn", "previewVid"]) $(id).hidden = true;
   $("previewBtn").disabled = $("exportBtn").disabled = true;
-  for (const id of ["exportStatus", "saveStatus", "previewStatus", "anaStatus"]) setStatus(id, "", "");
+  for (const id of ["exportStatus", "saveStatus", "previewStatus", "anaStatus", "bassNote"]) setStatus(id, "", "");
   S.previewLen = PREVIEW_DEFAULT; paintSlider("plen", PREVIEW_DEFAULT, PREVIEW_DEFAULT + " s");
   drawPlot();
   if (!file) return;
@@ -242,6 +242,12 @@ async function analyse(aTrack, dur) {
   log("analysis: " + S.an.nHops + " windows, " + S.an.nb + " bins, " + fmt(tAn, 1) + " s");
   prog.hidden = true;
   setStatus("anaStatus", "ok", "Ready (" + fmt(tDec + tAn, 1) + " s to analyse).");
+  // Bass presence: a clip with little bass gets a smaller shake (else its rumble is scaled to full size).
+  S.bassShare = bassShare(S.an, x); S.bassGain = bassGain(S.bassShare);
+  log("bass share " + fmt(100 * S.bassShare, 1) + "% of the sound -> shake gain " + fmt(S.bassGain, 2));
+  setStatus("bassNote", "", S.bassGain >= 0.995 ? "" : S.bassGain === 0
+    ? "This clip has almost no bass (" + Math.round(100 * S.bassShare) + "% of the sound), so there's no shake."
+    : "This clip has little bass (" + Math.round(100 * S.bassShare) + "% of the sound), so the shake is reduced to " + Math.round(100 * S.bassGain) + "%. Raise Strength to make up for it.");
   // The clip's own average bass spectrum (25-200 Hz, finer + smoothed), for the Frequency response plot.
   try { S.clipSpec = displaySpectrum(x, sr); } catch (e) { S.clipSpec = null; log("display spectrum failed: " + e.message); }
   drawRespond();
@@ -265,7 +271,7 @@ function paramsChanged(why) {
   const key = P.p + "|" + P.fMin;
   let E = S.Ecache.get(key);
   if (!E) { E = energyPerFrame(S.an, m.nFrames, m.fps, S.offsetSec, P.p, P.fMin); S.Ecache.set(key, E); }
-  S.curve = synth(E, P, m.fps);
+  S.curve = synth(E, S.bassGain < 1 ? Object.assign({}, P, { K: P.K * S.bassGain }) : P, m.fps);   // bass presence gain
   // Detected bass for the plot (the INPUT): the 1/f^p-weighted energy, as an amplitude
   // (square root of power), scaled to its own peak. Only "Frequency response" changes it.
   { let mx = 0; for (let i = 0; i < E.length; i++) mx = Math.max(mx, E[i]); const b = new Float64Array(E.length); if (mx > 0) for (let i = 0; i < E.length; i++) b[i] = Math.sqrt(E[i] / mx); S.curve.bass = b; }
@@ -562,6 +568,7 @@ function technicalReport() {
   const lines = ["build " + window.BUILD, "browser " + navigator.userAgent,
     "settings: preset " + S.preset + ", sliders " + JSON.stringify(S.sliders) + ", output " + (S.outSize || "original") + ", preview " + S.previewLen + " s",
     "model: " + JSON.stringify(S.params),
+    "bass share: " + (S.bassShare == null ? "n/a" : fmt(100 * S.bassShare, 1) + "%, shake gain " + fmt(S.bassGain, 2)),
     m ? "clip: " + m.format + ", " + m.width + "x" + m.height + ", " + fmt(m.fpsF, 3) + " fps, " + fmt(m.dur, 2) + " s, video " + m.codec + ", audio " + m.aCodec : "clip: none loaded",
     "--- log ---", ...window.__log];
   return redact(lines.join("\n"));

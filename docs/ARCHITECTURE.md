@@ -47,6 +47,14 @@ is rescaled to the same decay per second; the oscillation (Wobble: Fast 15 / Slo
 25 fps Fast is 12.5 Hz). At exactly 30 fps all of these are the identity — that is what the
 golden test's per-frame identity checks.
 
+## Bass presence
+
+The model scales the shake to the clip's own loudest bass, so a clip with almost no bass would still
+shake fully. `bassShare` (shake.js) = power in 25–150 Hz / total power (level-independent);
+`bassGain` = 0 at ≤ 5 %, 1 at ≥ 25 %, smoothstep on a log scale between. The page multiplies
+Strength (K) by the gain and says so under the clip. Music measured 48–87 %; no-bass test clip 0.1 %.
+e2e.py multiplies K by the page's gain before comparing with the reference.
+
 ## Controls (controls.js)
 
 Display only; the model keeps real values. Main: Strength 0–100 % → K = 100·s^1.5 ref px;
@@ -64,7 +72,7 @@ at 25 Hz and the soft ceiling (knee) at 0.5 — neither in the UI (Soften peaks 
 python3 tests/golden.py            # model vs reference generator (needs tests/reference/, see its README)
 python3 tests/golden.py --quick    # 48 kHz synthetic signals only (~1 min)
 node tests/controls.mjs            # every control's mapping and its effect on the curve (~3 s)
-python3 tests/make_synth.py        # synthetic e2e clips + tex.pgm into /tmp/bassapp-clips
+python3 tests/make_synth.py        # synthetic e2e clips (+ nobass.webm) + tex.pgm into /tmp/bassapp-clips
 python3 tests/e2e.py clip.webm ... # the page in headless Chromium (Playwright); --set id=value, --size 720p
 python3 tests/pixel_controls.py    # e2e under different settings; controls checked on rendered pixels (~6 min)
 ```

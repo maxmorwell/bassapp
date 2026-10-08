@@ -2,7 +2,7 @@
 // synthetic sounds that have a known right answer. Pixel-level checks are in
 // tests/pixel_controls.py (renders through the page).
 //   node tests/controls.mjs
-import { analyseAudio, energyPerFrame, synth, blurRange, wobbleHz } from "../js/shake.js";
+import { analyseAudio, energyPerFrame, synth, blurRange, wobbleHz, bassShare, bassGain, BASS_FULL, BASS_NONE } from "../js/shake.js";
 import { MAIN, ADVANCED, ALL, UI_PRESETS, presetModel, sliderFor, msFromDecay, BLUR_MARK, WOBBLE } from "../js/controls.js";
 
 const SR = 48000;
@@ -183,6 +183,20 @@ check(!ALL.some(c => c.id === "soften"), "soften peaks removed from the controls
     ratio.push(sec(11, 15) / sec(1, 6));             // quiet (well inside its half) vs loud
   }
   check(mono(ratio, -1) && ratio[0] > 0.9 && ratio[ratio.length - 1] < 0.9, "context: a short window lifts quiet passages; a long one keeps them quieter", ratio.map(f2).join(" "));
+}
+
+// ---------------------------------------------------------------- 3. bass presence ----------
+console.log("\n3. Bass presence (clips with little bass get a smaller shake)");
+{
+  const tone = f => new Float64Array(6 * SR).map((_, i) => Math.sin(2 * Math.PI * f * i / SR));
+  const s60 = bassShare(await analyseAudio(tone(60), SR, { yieldEvery: 1e9 }), tone(60));
+  const s1k = bassShare(await analyseAudio(tone(1000), SR, { yieldEvery: 1e9 }), tone(1000));
+  check(Math.abs(s60 - 1) < 0.02 && s1k < 0.001, "bass share: a 60 Hz tone is all bass, a 1 kHz tone none", (100 * s60).toFixed(1) + "% / " + (100 * s1k).toFixed(2) + "%");
+  const sMusic = bassShare(AN.held, sig.held);
+  check(sMusic > BASS_FULL && bassGain(sMusic) === 1, "kicks + held bass: full shake", (100 * sMusic).toFixed(1) + "%");
+  const g = range(0, 0.4, 81).map(bassGain);
+  check(bassGain(BASS_NONE) === 0 && bassGain(BASS_FULL) === 1 && mono(g), "gain: 0 at <=5 %, 1 at >=25 %, never falls as bass share rises",
+    [0.05, 0.08, 0.12, 0.15, 0.2, 0.25].map(s => (100 * s) + "%->" + bassGain(s).toFixed(2)).join(" "));
 }
 
 console.log("\n" + checks + " checks, " + fails + " failed\nRESULT: " + (fails ? "FAIL" : "PASS"));

@@ -110,14 +110,19 @@ def main():
             name = name + a.tag
             c = pg.evaluate("""() => { const S = window.__app; return { dy: Array.from(S.curve.dy), amp: Array.from(S.curve.amp),
                  fps: S.meta.fps, fpsF: S.meta.fpsF, n: S.meta.nFrames, offset: S.offsetSec, sr: S.an.sr, ov: S.curve.overscan,
-                 params: S.params, w: S.meta.width, h: S.meta.height, dur: S.meta.dur } }""")
-            dy = np.array(c["dy"]); P = c["params"]
+                 params: S.params, w: S.meta.width, h: S.meta.height, dur: S.meta.dur, gain: S.bassGain, share: S.bassShare } }""")
+            dy = np.array(c["dy"]); P = dict(c["params"])
+            print("  bass share %.1f%% -> shake gain %.2f" % (100 * c["share"], c["gain"]))
+            P["K"] = P["K"] * c["gain"]          # the page scales Strength by the bass-presence gain
             # --- 2. page curve vs reference on ffmpeg's decode of the same audio
             x = decode_audio(clip, c["sr"])
             n30 = int(round((c["dur"]) * 30)) - 1
             E = ref.energy_per_frame(x, c["sr"], n30, max(c["offset"], 0.0), p=P["p"], f_min=P["fMin"])
             rdy = ref.synth(E, P["K"], P["gamma"], P["rate"], P["t"], P["decay"], P["normWindow"], P["blurSustain"], P["knee"], P["blurK"])[0]
-            if c["fps"]["num"] == 30 and c["fps"]["den"] == 1:
+            if c["gain"] == 0:                     # no bass: the page must not shake it at all
+                print("  no bass: page curve max |dy| %.3f px (must be 0)" % np.abs(dy).max())
+                if np.abs(dy).max() > 0: ok_all = False; print("  FAIL no-bass clip shakes")
+            elif c["fps"]["num"] == 30 and c["fps"]["den"] == 1:
                 m = min(len(dy), len(rdy)) - 1
                 lags = {L: float(np.corrcoef(np.abs(dy[5 + L:m - 5 + L]), np.abs(rdy[5:m - 5]))[0, 1]) for L in range(-3, 4)}
                 bestL = max(lags, key=lags.get)

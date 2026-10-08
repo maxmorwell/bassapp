@@ -11,6 +11,7 @@ Writes:
   synth_25.webm           25 fps      same audio
   synth_60.webm           60 fps      same audio
   synth_quiet.webm        30 fps      same, but the middle third 20 dB quieter (quiet-passage case)
+  nobass.webm             30 fps      melody + hi-hats only, no bass (the page should not shake it)
 
 Deterministic (fixed seed): rerunning gives the same pictures and sounds.
 """
@@ -55,6 +56,15 @@ def audio(dur, quiet_mid=False):
     return (x / np.abs(x).max() * 0.9).astype(np.float32)
 
 
+def audio_nobass(dur):
+    """Melody + hi-hats only: no bass. The page should give (almost) no shake (bass-presence gain)."""
+    n = int(dur * SR); t = np.arange(n) / SR
+    rng = np.random.default_rng(3)
+    x = 0.2 * np.sin(2 * np.pi * 440 * t) * (np.sin(2 * np.pi * 1.5 * t) > 0)
+    x += 0.15 * rng.standard_normal(n) * ((t % 0.25) < 0.03)
+    return (x / np.abs(x).max() * 0.9).astype(np.float32)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default="/tmp/bassapp-clips")
@@ -75,6 +85,12 @@ def main():
                         "-c:a", "libopus", "-b:a", "128k", out], check=True)
         os.remove(wav)
         print("wrote", out)
+    wav = os.path.join(a.out, "nobass.f32"); audio_nobass(a.dur).tofile(wav)
+    out = os.path.join(a.out, "nobass.webm")        # not "synth*": no pixel-shake check (there is no shake)
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-loop", "1", "-framerate", "30", "-i", pgm, "-f", "f32le", "-ar", str(SR), "-ac", "1", "-i", wav,
+                    "-t", str(a.dur), "-c:v", "libvpx-vp9", "-b:v", "4M", "-deadline", "realtime", "-cpu-used", "8", "-pix_fmt", "yuv420p",
+                    "-c:a", "libopus", "-b:a", "128k", out], check=True)
+    os.remove(wav); print("wrote", out)
     print("wrote", pgm)
 
 

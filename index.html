@@ -25,6 +25,7 @@
     <p class="note">The clip's own sound drives the shake.</p>
     <progress id="anaProg" value="0" max="1" hidden></progress>
     <div class="status" id="anaStatus" role="status"></div>
+    <div class="status notice" id="bassNote" role="status"></div>
   </section>
 
   <section id="s-shake">
@@ -81,7 +82,7 @@
 
 <script>
 // Classic script: runs even if the module below fails to load, so errors still reach the report.
-window.BUILD = "v2-0.10 · 2026-10-08 07:00";
+window.BUILD = "v2-0.11 · 2026-10-08 07:10";
 document.getElementById("build").textContent = "test build " + window.BUILD;
 document.getElementById("buildFoot").textContent = "build " + window.BUILD;
 window.__log = [];

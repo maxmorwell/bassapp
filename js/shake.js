@@ -281,3 +281,29 @@ export function displaySpectrum(x, sr, { fLo = 25, fHi = 200, maxSegs = 48, smoo
   }
   return out;
 }
+
+// ------------------------------------------------------------- bass presence ------
+// The shake is scaled to the clip's OWN loudest bass, so a clip with almost no bass would still
+// shake fully (BASSAPP-004). bassShare = power in 25-150 Hz (from the analysis spectrum) as a
+// fraction of the clip's total power (time domain, all frequencies). Independent of recording level.
+// Expected (BASSAPP-004 research, mostly modelled): club 40-65 %, pop/rock 25-40 %, acoustic 8-15 %,
+// speech 3-20 %, pink noise ~26 %; real mixes and clips measured 48-87 %.
+export const BASS_FULL = 0.25, BASS_NONE = 0.05;
+export function bassShare(an, x) {
+  const { spec, nb, nHops, klo, sr } = an;
+  if (!nHops) return 0;
+  let bass = 0;
+  for (let h = 0; h < nHops; h++) for (let b = 0; b < nb; b++) { const f = (klo + b) * sr / NFFT; if (f >= 25 && f <= 150) bass += spec[h * nb + b]; }
+  let w2 = 0; for (let n = 0; n < NFFT; n++) { const w = 0.5 - 0.5 * Math.cos(2 * Math.PI * n / (NFFT - 1)); w2 += w * w; }
+  const bassPow = 2 * bass / (nHops * NFFT * w2);          // one-sided periodogram -> mean square per sample
+  let tot = 0; for (let i = 0; i < x.length; i++) tot += x[i] * x[i];
+  const totPow = tot / Math.max(1, x.length);
+  return totPow > 0 ? Math.min(1, bassPow / totPow) : 0;
+}
+// Shake gain from bass share: 0 at <= 5 %, 1 at >= 25 %, smooth (smoothstep on a log scale) between.
+export function bassGain(share) {
+  if (!(share > BASS_NONE)) return 0;
+  if (share >= BASS_FULL) return 1;
+  const u = Math.log(share / BASS_NONE) / Math.log(BASS_FULL / BASS_NONE);
+  return u * u * (3 - 2 * u);
+}

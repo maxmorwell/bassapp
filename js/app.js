@@ -1,7 +1,7 @@
 // app.js — the page. Load clip -> decode its audio -> analyse -> shake curve -> render.
 // The model lives in shake.js (golden-tested against the reference generator); what the
 // sliders show vs the model values lives in controls.js (per-control tested).
-import { analyseAudio, energyPerFrame, synth, overscanFor, snapFps, blurRange, wobbleHz, displaySpectrum, bassShare, bassGain, REF_H } from "./shake.js";
+import { analyseAudio, energyPerFrame, synth, overscanFor, snapFps, blurRange, wobbleHz, displaySpectrum, bassShare, bassGain, bassPeakDb, levelGain, REF_H } from "./shake.js";
 import { MAIN, ADVANCED, ALL, UI_PRESETS, presetModel, sliderFor, WOBBLE, TYPICAL_MIX } from "./controls.js";
 
 const log = window.log;
@@ -168,7 +168,7 @@ function syncOutSize() { for (const b of $("sizeSeg").children) b.setAttribute("
 // --------------------------------------------------------------- loading ---------
 $("file").addEventListener("change", async () => {
   const file = $("file").files[0];
-  S.file = file; S.meta = null; S.an = null; S.clipSpec = null; S.bassShare = null; S.bassGain = 1; S.Ecache.clear(); S.curve = null; S.out = null;
+  S.file = file; S.meta = null; S.an = null; S.clipSpec = null; S.bassShare = null; S.bassPeak = null; S.bassGain = 1; S.Ecache.clear(); S.curve = null; S.out = null;
   for (const id of ["shareBtn", "downloadBtn", "previewVid"]) $(id).hidden = true;
   $("previewBtn").disabled = $("exportBtn").disabled = true;
   for (const id of ["exportStatus", "saveStatus", "previewStatus", "anaStatus", "bassNote"]) setStatus(id, "", "");
@@ -243,11 +243,14 @@ async function analyse(aTrack, dur) {
   prog.hidden = true;
   setStatus("anaStatus", "ok", "Ready (" + fmt(tDec + tAn, 1) + " s to analyse).");
   // Bass presence: a clip with little bass gets a smaller shake (else its rumble is scaled to full size).
-  S.bassShare = bassShare(S.an, x); S.bassGain = bassGain(S.bassShare);
-  log("bass share " + fmt(100 * S.bassShare, 1) + "% of the sound -> shake gain " + fmt(S.bassGain, 2));
+  S.bassShare = bassShare(S.an, x); S.bassPeak = bassPeakDb(S.an);
+  const gShare = bassGain(S.bassShare), gLevel = levelGain(S.bassPeak);
+  S.bassGain = Math.min(gShare, gLevel);
+  log("bass share " + fmt(100 * S.bassShare, 1) + "% (gain " + fmt(gShare, 2) + "), loudest bass " + fmt(S.bassPeak, 1) + " dB (gain " + fmt(gLevel, 2) + ") -> shake gain " + fmt(S.bassGain, 2));
+  const why = gLevel <= gShare ? "is very quiet" : "has little bass (" + Math.round(100 * S.bassShare) + "% of the sound)";
   setStatus("bassNote", "", S.bassGain >= 0.995 ? "" : S.bassGain === 0
-    ? "This clip has almost no bass (" + Math.round(100 * S.bassShare) + "% of the sound), so there's no shake."
-    : "This clip has little bass (" + Math.round(100 * S.bassShare) + "% of the sound), so the shake is reduced to " + Math.round(100 * S.bassGain) + "%. Raise Strength to make up for it.");
+    ? "This clip " + why + ", so there's no shake."
+    : "This clip " + why + ", so the shake is reduced to " + Math.round(100 * S.bassGain) + "%. Raise Strength to make up for it.");
   // The clip's own average bass spectrum (25-200 Hz, finer + smoothed), for the Frequency response plot.
   try { S.clipSpec = displaySpectrum(x, sr); } catch (e) { S.clipSpec = null; log("display spectrum failed: " + e.message); }
   drawRespond();
@@ -568,7 +571,7 @@ function technicalReport() {
   const lines = ["build " + window.BUILD, "browser " + navigator.userAgent,
     "settings: preset " + S.preset + ", sliders " + JSON.stringify(S.sliders) + ", output " + (S.outSize || "original") + ", preview " + S.previewLen + " s",
     "model: " + JSON.stringify(S.params),
-    "bass share: " + (S.bassShare == null ? "n/a" : fmt(100 * S.bassShare, 1) + "%, shake gain " + fmt(S.bassGain, 2)),
+    "bass: " + (S.bassShare == null ? "n/a" : "share " + fmt(100 * S.bassShare, 1) + "%, loudest " + fmt(S.bassPeak, 1) + " dB, shake gain " + fmt(S.bassGain, 2)),
     m ? "clip: " + m.format + ", " + m.width + "x" + m.height + ", " + fmt(m.fpsF, 3) + " fps, " + fmt(m.dur, 2) + " s, video " + m.codec + ", audio " + m.aCodec : "clip: none loaded",
     "--- log ---", ...window.__log];
   return redact(lines.join("\n"));

@@ -2,7 +2,7 @@
 // synthetic sounds that have a known right answer. Pixel-level checks are in
 // tests/pixel_controls.py (renders through the page).
 //   node tests/controls.mjs
-import { analyseAudio, energyPerFrame, synth, blurRange, wobbleHz, bassShare, bassGain, BASS_FULL, BASS_NONE } from "../js/shake.js";
+import { analyseAudio, energyPerFrame, synth, blurRange, wobbleHz, bassShare, bassGain, BASS_FULL, BASS_NONE, bassPeakDb, levelGain, PEAK_FULL_DB, PEAK_NONE_DB } from "../js/shake.js";
 import { MAIN, ADVANCED, ALL, UI_PRESETS, presetModel, sliderFor, msFromDecay, BLUR_MARK, WOBBLE } from "../js/controls.js";
 
 const SR = 48000;
@@ -197,6 +197,17 @@ console.log("\n3. Bass presence (clips with little bass get a smaller shake)");
   const g = range(0, 0.4, 81).map(bassGain);
   check(bassGain(BASS_NONE) === 0 && bassGain(BASS_FULL) === 1 && mono(g), "gain: 0 at <=5 %, 1 at >=25 %, never falls as bass share rises",
     [0.05, 0.08, 0.12, 0.15, 0.2, 0.25].map(s => (100 * s) + "%->" + bassGain(s).toFixed(2)).join(" "));
+}
+
+{
+  const tone = (f, a) => new Float64Array(6 * SR).map((_, i) => a * Math.sin(2 * Math.PI * f * i / SR));
+  const pk = async a => bassPeakDb(await analyseAudio(tone(60, a), SR, { yieldEvery: 1e9 }));
+  const p0 = await pk(1), p40 = await pk(0.01), p60 = await pk(0.001);
+  check(Math.abs(p0 + 3.01) < 0.3 && Math.abs(p40 - (p0 - 40)) < 0.3 && Math.abs(p60 - (p0 - 60)) < 0.3, "loudest bass: a full-scale 60 Hz tone reads -3 dB, and tracks level exactly", [p0, p40, p60].map(v => v.toFixed(1)).join(" / ") + " dB");
+  check(levelGain(p0) === 1 && levelGain(p60) === 0 && levelGain((PEAK_FULL_DB + PEAK_NONE_DB) / 2) > 0.4 && levelGain((PEAK_FULL_DB + PEAK_NONE_DB) / 2) < 0.6, "level gain: full at >= " + PEAK_FULL_DB + " dB, none at <= " + PEAK_NONE_DB + " dB",
+    [-30, -42, -46, -50, -55].map(d => d + "->" + levelGain(d).toFixed(2)).join(" "));
+  const x = new Float64Array(20 * SR); for (let i = 0; i < 0.5 * SR; i++) x[10 * SR + i] = 0.5 * Math.sin(2 * Math.PI * 50 * i / SR);   // one bass event in 20 s of silence
+  check(levelGain(bassPeakDb(await analyseAudio(x, SR, { yieldEvery: 1e9 }))) === 1, "one loud bass event in a long silent clip still counts (peak, not average)");
 }
 
 console.log("\n" + checks + " checks, " + fails + " failed\nRESULT: " + (fails ? "FAIL" : "PASS"));

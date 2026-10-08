@@ -51,8 +51,10 @@ golden test's per-frame identity checks.
 
 The model scales the shake to the clip's own loudest bass, so a clip with almost no bass would still
 shake fully. `bassShare` (shake.js) = power in 25–150 Hz / total power (level-independent);
-`bassGain` = 0 at ≤ 5 %, 1 at ≥ 25 %, smoothstep on a log scale between. The page multiplies
-Strength (K) by the gain and says so under the clip. Music measured 48–87 %; no-bass test clip 0.1 %.
+`bassGain` = 0 at ≤ 5 %, 1 at ≥ 25 %, smoothstep on a log scale between. Also an absolute level
+check: `bassPeakDb` = 25–150 Hz power reached in the loudest 0.3 s (dB re full scale; full-scale
+sine = −3), `levelGain` = 0 at ≤ −55 dB, 1 at ≥ −42 dB (to calibrate on a phone filming a home
+stereo). The page multiplies Strength (K) by the lower of the two gains and says so under the clip. Music measured 48–87 %; no-bass test clip 0.1 %.
 e2e.py multiplies K by the page's gain before comparing with the reference.
 
 ## Controls (controls.js)

@@ -300,6 +300,31 @@ export function bassShare(an, x) {
   const totPow = tot / Math.max(1, x.length);
   return totPow > 0 ? Math.min(1, bassPow / totPow) : 0;
 }
+// Absolute level check (BASSAPP-004): a near-silent clip whose little sound is rumble passes the share
+// check, so also look at how LOUD the bass gets. bassPeakDb = the 25-150 Hz power (mean square, dB re
+// digital full scale; a full-scale sine reads -3) reached in the loudest 0.3 s of analysis windows.
+// The loud MOMENTS, so one bass event in a long quiet clip still counts (a 95th percentile did not). Measured: near-silent iPhone
+// clip -59, real music/clips -4 to -9; research estimates: club -5..-15, home stereo normal ~-50
+// (AGC may lift to -35..-45), loud ~-28, phone speaker < -60, speech -60..-70. Full at >= -42 dB,
+// none at <= -55 dB. To calibrate with a phone filming a home stereo.
+export const PEAK_FULL_DB = -42, PEAK_NONE_DB = -55, PEAK_HOLD_S = 0.3;
+export function bassPeakDb(an) {
+  const { spec, nb, nHops, klo, sr } = an;
+  if (!nHops) return -Infinity;
+  let w2 = 0; for (let n = 0; n < NFFT; n++) { const w = 0.5 - 0.5 * Math.cos(2 * Math.PI * n / (NFFT - 1)); w2 += w * w; }
+  const per = new Float64Array(nHops);
+  for (let h = 0; h < nHops; h++) { let s = 0; for (let b = 0; b < nb; b++) { const f = (klo + b) * sr / NFFT; if (f >= 25 && f <= 150) s += spec[h * nb + b]; } per[h] = 2 * s / (NFFT * w2); }
+  per.sort();
+  // the level reached for at least PEAK_HOLD_S in total (not a percentile, so clip length doesn't matter)
+  const k = Math.max(1, Math.min(nHops, Math.round(PEAK_HOLD_S * sr / HOP)));
+  return 10 * Math.log10(per[nHops - k] + 1e-30);
+}
+export function levelGain(db) {
+  if (!(db > PEAK_NONE_DB)) return 0;
+  if (db >= PEAK_FULL_DB) return 1;
+  const u = (db - PEAK_NONE_DB) / (PEAK_FULL_DB - PEAK_NONE_DB);
+  return u * u * (3 - 2 * u);
+}
 // Shake gain from bass share: 0 at <= 5 %, 1 at >= 25 %, smooth (smoothstep on a log scale) between.
 export function bassGain(share) {
   if (!(share > BASS_NONE)) return 0;

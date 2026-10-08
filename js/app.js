@@ -318,10 +318,11 @@ function drawPlot() {
   const pad = 3 * dpr;
   // Shake and blur share one px scale (both are movement on screen), so their sizes compare.
   const shakeScale = h => (h / 2 - pad) / Math.max(30, S.curve.fullPeak ?? S.curve.peak);
-  const bassArea = (top, h, mirrored) => {        // grey filled area, scaled to its own peak
+  const bassArea = (top, h, mirrored) => {        // grey filled area, scaled to its own peak x the bass presence gain
     g.fillStyle = "rgba(255,255,255,.16)";
+    const gk = S.an ? S.bassGain : 1;              // little/no bass: the bass row shrinks with the shake (Manager, BASSAPP-005)
     for (let px = 0; px < W; px++) {
-      const v = colRange(bass, px, W, n, colMax) * (mirrored ? h / 2 - pad : h - 2 * pad);
+      const v = colRange(bass, px, W, n, colMax) * gk * (mirrored ? h / 2 - pad : h - 2 * pad);
       if (v > 0.3) mirrored ? g.fillRect(px, top + h / 2 - v, 1, 2 * v) : g.fillRect(px, top + h - pad - v, 1, v);
     }
   };

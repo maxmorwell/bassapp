@@ -1,3 +1,5 @@
+/* Watermark font, hosted with the page (not Google Fonts) so every export draws the same glyphs. IBM Plex Sans 500, OFL (vendor/fonts). */
+@font-face { font-family: "BS Watermark"; src: url("../vendor/fonts/ibm-plex-sans-latin-500-normal.woff2") format("woff2"); font-weight: 500; font-style: normal; font-display: block; }
 /* Bass Shake — look agreed in BASSAPP-003 (design/look-mockup_v0-3.html on the project drive):
    dark club/night, treated bass-cone photo full page, amber accent, "fade column" (one
    darkened column at 55 % fading into the background at the sides; solid on phones),

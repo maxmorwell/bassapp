@@ -13,6 +13,8 @@ plain HTML + ES modules, served as-is by GitHub Pages.
 | `css/app.css` | Styles. Dark "club" look: treated bass-cone photo (`img/bg-cone.jpg`, Pexels, free licence), amber accent, fade column. |
 | `js/app.js` | UI and media: load clip → decode its audio → analyse → curve → render (preview / export) → save; feedback box. |
 | `js/controls.js` | What the sliders SHOW vs the model values: 0–100 % / real-unit mappings, marks, presets as chips. Pure, tested by `tests/controls.mjs`. |
+| `js/watermark.js` | The watermark (TEST BUILD switch): plan over the whole clip, placement, drawing. Pure, tested by `tests/watermark.mjs` and `tests/wm_e2e.py`. |
+| `vendor/fonts/` | IBM Plex Sans 500 (OFL) for the watermark, hosted so every export draws the same glyphs. |
 | `js/shake.js` | **The model.** Pure maths, no DOM. Golden-tested against the reference generator. |
 | `vendor/mediabunny-1.61.3.min.mjs` | Video/audio demux, decode, encode, mux (MPL-2.0, licence alongside). Hosted here, not from a CDN — the CDN load took ~11 s on a phone. |
 
@@ -57,6 +59,19 @@ sine = −3), `levelGain` = 0 at ≤ −55 dB, 1 at ≥ −42 dB (to calibrate o
 stereo). The page multiplies Strength (K) by the lower of the two gains. The plot shows it: the shake and blur rows keep their UNREDUCED scale (`curve.fullPeak`, `curve.fullBlurMax`, from a second ungated `synth`), so they shrink by the gain; the bass row (own peak) is multiplied by the gain too, so all three rows agree with the message; a message sits on the plot ("There is not much bass in this clip" when gain < 0.6 — rows still shrink above that, silently; "There is pretty much no bass in this clip" at 0) and in the canvas aria-label. Nothing under the clip. Music measured 48–87 %; no-bass test clip 0.1 %.
 e2e.py multiplies K by the page's gain before comparing with the reference.
 
+## Watermark (watermark.js) — test build
+
+"@bass_shake_app", creator-style: white text, soft shadow, no box, no logo. Size = % of the output's
+SHORTER side (default 3.5 %), opacity default 70 %, "moves with picture" = fraction of the picture's dy
+(default 25 %). Behind an On/Off switch in Export (not tied to tiers yet).
+Plan (`planWatermark`, whole clip, so preview == export): visible from frame 0; moves every 5-8 s
+(target 6.5 s); a move lands on the bass hit (rise of the shake envelope `curve.amp`, at least 35 % of
+the clip's 95th-percentile rise) NEAREST the target, else on the target; no move in the last 2 s.
+Fade out 0.25 s, hidden switch-over (~0.05 s), fade in 0.2 s — plain smoothstep, nothing else.
+Spots cycle in a fixed order, never in corners: portrait (h ≥ 1.15 w) inside the 9:16 social safe zone
+(x 6-84 %, y 14-66 %); landscape/square with a plain margin. `tests/wm_sheet.py` makes a contact sheet
+of real clips with the watermark drawn by the same code.
+
 ## Controls (controls.js)
 
 Display only; the model keeps real values. Main: Strength 0–100 % → K = 100·s^1.5 ref px;
@@ -77,6 +92,9 @@ node tests/controls.mjs            # every control's mapping and its effect on t
 python3 tests/make_synth.py        # synthetic e2e clips (+ nobass.webm) + tex.pgm into /tmp/bassapp-clips
 python3 tests/e2e.py clip.webm ... # the page in headless Chromium (Playwright); --set id=value, --size 720p
 python3 tests/pixel_controls.py    # e2e under different settings; controls checked on rendered pixels (~6 min)
+node tests/watermark.mjs           # watermark plan: timing, hits, fades, spots, placement (~1 s)
+python3 tests/wm_e2e.py clip.webm  # watermark on vs off exports: only inside its box, hidden at switch-over, preview == export
+python3 tests/wm_sheet.py a.mp4 …  # contact sheet (not a test): watermark on real stills at several sizes/opacities
 ```
 
 **controls.mjs**: slider↔model round trips, monotonic "more effect to the right", presets,
@@ -95,7 +113,8 @@ overscan exact). Other rates: envelope correlation against the 30 fps reference,
 `--audio` adds real audio; `--shipped` checks the curves of presets that were shipped and
 approved by eye. A deliberately broken window function fails all checks (mutation-tested).
 
-**e2e.py**: needs VP9/Opus WebM copies (the container's Chromium has no H.264/HEVC/AAC; the
+**e2e.py**: turns the watermark OFF unless `--set wm=0` (On) — its pixel check measures the picture.
+Needs VP9/Opus WebM copies (the container's Chromium has no H.264/HEVC/AAC; the
 real H.264 path is only proven on device). Per clip: the page's curve vs the reference run on
 ffmpeg's decode of the same audio (alignment, lag must be 0); preview and export render; frame
 count and audio kept; preview frames == export frames at the same times; and for `synth*`

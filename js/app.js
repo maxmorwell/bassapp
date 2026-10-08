@@ -3,6 +3,7 @@
 // sliders show vs the model values lives in controls.js (per-control tested).
 import { analyseAudio, energyPerFrame, synth, overscanFor, snapFps, blurRange, wobbleHz, displaySpectrum, bassShare, bassGain, bassPeakDb, levelGain, REF_H } from "./shake.js";
 import { MAIN, ADVANCED, ALL, UI_PRESETS, presetModel, sliderFor, WOBBLE, TYPICAL_MIX } from "./controls.js";
+import { WM_TEXT, WM_DEFAULTS, spotsFor, planWatermark, placeText, wmFont, drawWatermark } from "./watermark.js";
 
 const log = window.log;
 const $ = id => document.getElementById(id);
@@ -37,6 +38,8 @@ const S = {
   running: null,                   // active Conversion
   names: new Set(),                // loaded file names: removed from the feedback report
   fb: { worked: null, look: null },
+  wm: Object.assign({}, WM_DEFAULTS),   // watermark test switch + sliders (TEST BUILD, BASSAPP-006)
+  wmPlan: null,                    // last plan used by render (for automated checks)
 };
 window.__app = S;                  // for automated checks
 
@@ -117,7 +120,27 @@ function buildControls() {
     seg.append(b);
   }
   syncOutSize();
+  buildWatermarkControls();
   applyPreset(S.preset, true);
+}
+// Watermark (TEST BUILD): on/off + size / opacity / shake, to judge on real clips (BASSAPP-006).
+const WM_CTLS = [
+  { id: "wmsize", label: "Size", hint: "of the shorter side", min: 2, max: 6, step: 0.1, key: "size", show: v => Number(v).toFixed(1) + "%" },
+  { id: "wmop", label: "Opacity", hint: "", min: 20, max: 100, step: 5, key: "opacity", show: v => Math.round(v) + "%" },
+  { id: "wmshake", label: "Moves with picture", hint: "", min: 0, max: 100, step: 5, key: "shake", show: v => Math.round(v) + "%" },
+];
+function buildWatermarkControls() {
+  const box = $("wmCtls");
+  sliderRow({ id: "wm", label: "Watermark", hint: "test", seg: ["On", "Off"] }, box, i => { S.wm.on = i === 0; syncWm(); log("watermark " + (S.wm.on ? "on" : "off")); });
+  for (const c of WM_CTLS) {
+    sliderRow(c, box, v => { S.wm[c.key] = v; syncWm(); });
+    $("c_" + c.id).addEventListener("change", () => log("watermark " + c.key + " = " + S.wm[c.key]));
+  }
+  syncWm();
+}
+function syncWm() {
+  $("c_wm").querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", String((Number(b.dataset.i) === 0) === S.wm.on)));
+  for (const c of WM_CTLS) { paintSlider(c.id, S.wm[c.key], c.show(S.wm[c.key])); $("c_" + c.id).disabled = !S.wm.on; }
 }
 function applyPreset(name, quiet) {
   S.preset = name; S.params = presetModel(name);
@@ -407,6 +430,21 @@ async function render({ trim, onProgress }) {
   let aCodec = null;
   if (m.hasAudio) for (const c of ["aac", "opus"]) { if (await canEncodeAudio(c)) { aCodec = c; break; } }
   const canvas = new OffscreenCanvas(w, h), ctx = canvas.getContext("2d");
+  // Watermark: planned over the WHOLE clip (like the curve), so preview == export.
+  let wm = null;
+  if (S.wm.on) {
+    const { font, fontPx } = wmFont(S.wm.size, w, h);
+    try { await document.fonts.load(font, WM_TEXT); } catch (e) { log("watermark font load: " + e.message); }
+    if (!document.fonts.check('500 20px "BS Watermark"', WM_TEXT)) log("watermark font NOT loaded: falling back to a system font");
+    ctx.font = font;
+    const textW = ctx.measureText(WM_TEXT).width, spots = spotsFor(w, h);
+    const plan = planWatermark(cv.amp, m.fpsF, spots.length);
+    const at = spots.map(s => placeText(s, textW, fontPx, w, h));
+    wm = { font, fontPx, plan, at, op: S.wm.opacity / 100, follow: S.wm.shake / 100 };
+    S.wmPlan = { moves: plan.moves, textW, fontPx, at, w, h };
+    log("watermark: " + WM_TEXT + ", " + fmt(fontPx, 1) + " px (" + fmt(S.wm.size, 1) + "% of short side), text " + fmt(textW, 0) + " px wide, opacity " + S.wm.opacity + "%, moves with picture " + S.wm.shake + "%, " +
+      plan.moves.length + " moves at " + plan.moves.map(mv => fmt(mv.frame / m.fpsF, 1) + "s" + (mv.onHit ? "*" : "")).join(" ") + " (* = on a bass hit)");
+  } else S.wmPlan = null;
   const src = new OffscreenCanvas(w, h), sctx = src.getContext("2d");
   let frames = 0, firstTs = null, tsShift = 0, maxDraws = 0, idxMin = Infinity, idxMax = -Infinity;
   const input = new Input({ source: new BlobSource(S.file), formats: ALL_FORMATS });
@@ -454,6 +492,10 @@ async function render({ trim, onProgress }) {
             ctx.drawImage(src, -w / 2, -h / 2, w, h);
           }
           ctx.globalAlpha = 1;
+        }
+        if (wm && wm.plan.alpha[i] > 0.003) {
+          const p = wm.at[wm.plan.spot[i]];
+          drawWatermark(ctx, wm.font, wm.fontPx, p.x, p.y + wm.follow * dy, wm.op * wm.plan.alpha[i]);
         }
         frames++;
         return canvas;
@@ -590,6 +632,7 @@ function technicalReport() {
   const lines = ["build " + window.BUILD, "browser " + navigator.userAgent,
     "settings: preset " + S.preset + ", sliders " + JSON.stringify(S.sliders) + ", output " + (S.outSize || "original") + ", preview " + S.previewLen + " s",
     "model: " + JSON.stringify(S.params),
+    "watermark: " + (S.wm.on ? "on, size " + S.wm.size + "%, opacity " + S.wm.opacity + "%, moves with picture " + S.wm.shake + "%" : "off"),
     "bass: " + (S.bassShare == null ? "n/a" : "share " + fmt(100 * S.bassShare, 1) + "%, loudest " + fmt(S.bassPeak, 1) + " dB, shake gain " + fmt(S.bassGain, 2)),
     m ? "clip: " + m.format + ", " + m.width + "x" + m.height + ", " + fmt(m.fpsF, 3) + " fps, " + fmt(m.dur, 2) + " s, video " + m.codec + ", audio " + m.aCodec : "clip: none loaded",
     "--- log ---", ...window.__log];

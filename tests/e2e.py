@@ -99,6 +99,9 @@ def main():
             if not st.startswith("Ready"):
                 ok_all = False; print("  FAIL"); print(pg.input_value("#log")[-2000:]); continue
             if a.preset: pg.click("#chips button[data-preset='%s']" % a.preset)
+            # Watermark (test switch, BASSAPP-006) is OFF here unless asked (--set wm=0 = On): the
+            # pixel check measures the picture, and tests/wm_e2e.py checks the watermark itself.
+            if not any(kv.split("=")[0] == "wm" for kv in a.set): pg.click("#c_wm button[data-i='1']")
             for kv in a.set:
                 k, v = kv.split("=")
                 if pg.locator("#c_%s button" % k).count():

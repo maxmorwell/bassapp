@@ -1,7 +1,7 @@
 // app.js — the page. Load clip -> decode its audio -> analyse -> shake curve -> render.
 // The model lives in shake.js (golden-tested against the reference generator); what the
 // sliders show vs the model values lives in controls.js (per-control tested).
-import { analyseAudio, energyPerFrame, synth, overscanFor, snapFps, blurRange, wobbleHz, REF_H } from "./shake.js";
+import { analyseAudio, energyPerFrame, synth, overscanFor, snapFps, blurRange, wobbleHz, displaySpectrum, REF_H } from "./shake.js";
 import { MAIN, ADVANCED, ALL, UI_PRESETS, presetModel, sliderFor, WOBBLE, TYPICAL_MIX } from "./controls.js";
 
 const log = window.log;
@@ -242,10 +242,8 @@ async function analyse(aTrack, dur) {
   log("analysis: " + S.an.nHops + " windows, " + S.an.nb + " bins, " + fmt(tAn, 1) + " s");
   prog.hidden = true;
   setStatus("anaStatus", "ok", "Ready (" + fmt(tDec + tAn, 1) + " s to analyse).");
-  // The clip's own average bass spectrum (25-200 Hz), for the Frequency response plot.
-  { const { spec, nb, nHops, klo, sr } = S.an, out = [];
-    for (let b = 0; b < nb; b++) { const f = (klo + b) * sr / 8192; if (f < 25 || f > 200) continue; let s = 0; for (let h = 0; h < nHops; h++) s += spec[h * nb + b]; out.push([f, s / Math.max(1, nHops)]); }
-    S.clipSpec = out.length > 3 && out.some(q => q[1] > 0) ? out : null; }
+  // The clip's own average bass spectrum (25-200 Hz, finer + smoothed), for the Frequency response plot.
+  try { S.clipSpec = displaySpectrum(x, sr); } catch (e) { S.clipSpec = null; log("display spectrum failed: " + e.message); }
   drawRespond();
   paramsChanged("initial");
 }

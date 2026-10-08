@@ -247,3 +247,37 @@ export function snapFps(f) {
   if (bd < 0.005) return best;
   return { num: Math.round(f * 1000), den: 1000 };
 }
+
+// ------------------------------------------------------------- display only -------
+// A smooth average bass spectrum for the "Frequency response" plot. NOT used by the model.
+// Welch average of up to `maxSegs` Hann windows of NFFT_DISPLAY samples (~0.7 s at 48 kHz,
+// ~1.5 Hz bins), spread evenly over the clip; then smoothed with a Gaussian of `smoothOct`
+// octaves (s.d.) on a log-frequency axis and sampled every 1/24 octave from fLo to fHi.
+// Returns [[f, power], ...] (power in arbitrary units; callers normalise).
+export const NFFT_DISPLAY = 32768;
+export function displaySpectrum(x, sr, { fLo = 25, fHi = 200, maxSegs = 48, smoothOct = 1 / 12 } = {}) {
+  const N = NFFT_DISPLAY;
+  if (x.length < N) return null;
+  const fft = makeFFT(N), win = hann(N);
+  const kHi = Math.min(N / 2, Math.ceil(fHi * 2 * N / sr));
+  const psd = new Float64Array(kHi);
+  const nSeg = Math.min(maxSegs, 1 + Math.floor((x.length - N) / (N / 2)));
+  const re = new Float64Array(N), im = new Float64Array(N);
+  for (let s = 0; s < nSeg; s++) {
+    const o = nSeg === 1 ? 0 : Math.round(s * (x.length - N) / (nSeg - 1));
+    for (let n = 0; n < N; n++) { re[n] = x[o + n] * win[n]; im[n] = 0; }
+    fft(re, im);
+    for (let k = 0; k < kHi; k++) psd[k] += re[k] * re[k] + im[k] * im[k];
+  }
+  const out = [];
+  for (let lf = Math.log2(fLo); lf <= Math.log2(fHi) + 1e-9; lf += 1 / 24) {
+    let s = 0, wsum = 0;
+    for (let k = 1; k < kHi; k++) {
+      const d = (Math.log2(k * sr / N) - lf) / smoothOct;
+      if (d < -3 || d > 3) continue;
+      const w = Math.exp(-0.5 * d * d); s += w * psd[k]; wsum += w;
+    }
+    out.push([Math.pow(2, lf), wsum > 0 ? s / wsum / nSeg : 0]);
+  }
+  return out;
+}

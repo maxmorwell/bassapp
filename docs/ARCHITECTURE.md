@@ -82,7 +82,7 @@ python3 tests/pixel_controls.py    # e2e under different settings; controls chec
 **controls.mjs**: slider↔model round trips, monotonic "more effect to the right", presets,
 then each control on synthetic sounds with known answers: Strength scales shake and blur
 together; Wobble frequency exact at 25/29.97/30/60 fps; Motion blur span rises, sharp at 0;
-Bass smear only during held bass; Ring-down ms measured on isolated hits; Respond to shifts
+Bass smear only during held bass; Ring-down ms measured on isolated hits; Frequency response shifts
 weight from 35 Hz to 90 Hz; Threshold drops soft hits; Dynamics, Context.
 
 **pixel_controls.py**: Strength, Motion blur (0/40/100 %), Bass smear, Slow at 60 fps,

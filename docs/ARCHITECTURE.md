@@ -53,8 +53,8 @@ Display only; the model keeps real values. Main: Strength 0–100 % → K = 100�
 Wobble (stepped); Motion blur 0–40 % = shutter 0–180°, 40–100 % = extra blur
 blurK = 1.0·x^1.5; Bass smear → blurSustain = 1.2·s^1.5. Advanced: Ring-down in ms (time for
 an isolated hit's shake to fall to 1/10 at gamma 0.5; exact to within a frame for ≥ 100 ms);
-Respond to → p from 20 to 0.7 on a log scale (~30 to ~110 Hz) (readout ~Hz = 90th percentile of the weighted bass energy in four
-real mixes — an orientation aid); Threshold → t; Dynamics → gamma, 0.5 in the middle
+Frequency response (was Respond to) 0–100 % → p from 20 to 0.7 on a log scale (~30 to ~110 Hz in a typical mix); a mini plot shows the clip's own bass spectrum and the weighted part (Hz = 90th percentile of the weighted
+bass energy in four real mixes); Threshold → t; Dynamics → gamma, 0.5 in the middle
 (0.25…1.5, log steps); Context → normWindow s. Low cut is fixed
 at 25 Hz and the soft ceiling (knee) at 0.5 — neither in the UI (Soften peaks removed: almost no effect). A preset sets real values exactly; sliders snap to the nearest step.
 

@@ -2,7 +2,7 @@
 // The model lives in shake.js (golden-tested against the reference generator); what the
 // sliders show vs the model values lives in controls.js (per-control tested).
 import { analyseAudio, energyPerFrame, synth, overscanFor, snapFps, blurRange, wobbleHz, REF_H } from "./shake.js";
-import { MAIN, ADVANCED, ALL, UI_PRESETS, presetModel, sliderFor, WOBBLE, TYPICAL_MIX, respondHz } from "./controls.js";
+import { MAIN, ADVANCED, ALL, UI_PRESETS, presetModel, sliderFor, WOBBLE, TYPICAL_MIX } from "./controls.js";
 
 const log = window.log;
 const $ = id => document.getElementById(id);
@@ -101,7 +101,7 @@ function buildControls() {
     });
     if (c.id === "respond") {                       // little plot of what the shake listens to
       const cvs = document.createElement("canvas"); cvs.id = "respPlot"; cvs.className = "mini";
-      cvs.setAttribute("aria-label", "Which bass frequencies drive the shake, in a typical mix");
+      cvs.setAttribute("aria-label", "Which bass frequencies drive the shake");
       row.insertBefore(cvs, row.querySelector(".track"));
     }
   }
@@ -134,9 +134,9 @@ function syncControls() {
   }
   drawRespond();
 }
-// "Respond to" mini plot. x: 25-200 Hz (log). Grey line: a typical mix's bass (amplitude).
-// Amber: the same after the 1/f^p weighting, i.e. what the shake responds to (own peak = full
-// height). Dashed mark: the ~N Hz readout (90 % of the weighted energy lies below it).
+// "Frequency response" mini plot. x: 25-200 Hz (log). White line: the loaded clip's own bass
+// (average spectrum, amplitude; a typical mix until a clip is loaded). Amber: the same after the
+// 1/f^p weighting, i.e. what the shake responds to (own peak = full height).
 function drawRespond() {
   const c = $("respPlot"); if (!c) return;
   const dpr = window.devicePixelRatio || 1, W = Math.max(100, Math.round(c.clientWidth * dpr)), H = Math.max(30, Math.round(c.clientHeight * dpr));
@@ -145,8 +145,10 @@ function drawRespond() {
   const cs = getComputedStyle(document.documentElement), accent = cs.getPropertyValue("--accent").trim(), muted = cs.getPropertyValue("--muted").trim();
   const p = S.params.p, f0 = 25, f1 = 200, top = 4 * dpr, base = H - 14 * dpr;
   const X = f => (Math.log(f / f0) / Math.log(f1 / f0)) * W;
-  const pts = TYPICAL_MIX.map(([f, pw]) => [f, Math.sqrt(pw), Math.sqrt(pw * Math.pow(f, -p))]);
-  const wmax = Math.max(...pts.map(q => q[2]));
+  const src = S.clipSpec || TYPICAL_MIX;
+  const amax = Math.max(...src.map(q => q[1])) || 1;
+  const pts = src.map(([f, pw]) => [f, Math.sqrt(pw / amax), Math.sqrt(pw / amax * Math.pow(f / f0, -p))]);
+  const wmax = Math.max(...pts.map(q => q[2])) || 1;
   const Y = v => base - v * (base - top);
   g.beginPath(); g.moveTo(X(pts[0][0]), base);
   for (const [f, , w] of pts) g.lineTo(X(f), Y(w / wmax));
@@ -154,9 +156,6 @@ function drawRespond() {
   g.fillStyle = accent; g.globalAlpha = 0.75; g.fill(); g.globalAlpha = 1;
   g.beginPath(); pts.forEach(([f, a], i) => i ? g.lineTo(X(f), Y(a)) : g.moveTo(X(f), Y(a)));
   g.strokeStyle = "rgba(255,255,255,.55)"; g.lineWidth = 1.5 * dpr; g.stroke();
-  const hz = respondHz(p), xm = X(hz);
-  g.setLineDash([3 * dpr, 3 * dpr]); g.strokeStyle = "rgba(255,255,255,.8)"; g.lineWidth = dpr;
-  g.beginPath(); g.moveTo(xm, top); g.lineTo(xm, base); g.stroke(); g.setLineDash([]);
   g.strokeStyle = "rgba(255,255,255,.25)"; g.beginPath(); g.moveTo(0, base); g.lineTo(W, base); g.stroke();
   g.fillStyle = muted; g.font = (10 * dpr) + "px " + cs.getPropertyValue("--mono"); g.textBaseline = "bottom";
   for (const f of [30, 50, 100, 200]) { const x = X(f); g.textAlign = f === 200 ? "right" : "center"; g.fillText(f === 200 ? "200 Hz" : String(f), Math.min(W - 1, x), H); }
@@ -169,7 +168,7 @@ function syncOutSize() { for (const b of $("sizeSeg").children) b.setAttribute("
 // --------------------------------------------------------------- loading ---------
 $("file").addEventListener("change", async () => {
   const file = $("file").files[0];
-  S.file = file; S.meta = null; S.an = null; S.Ecache.clear(); S.curve = null; S.out = null;
+  S.file = file; S.meta = null; S.an = null; S.clipSpec = null; S.Ecache.clear(); S.curve = null; S.out = null;
   for (const id of ["shareBtn", "downloadBtn", "previewVid"]) $(id).hidden = true;
   $("previewBtn").disabled = $("exportBtn").disabled = true;
   for (const id of ["exportStatus", "saveStatus", "previewStatus", "anaStatus"]) setStatus(id, "", "");
@@ -243,6 +242,11 @@ async function analyse(aTrack, dur) {
   log("analysis: " + S.an.nHops + " windows, " + S.an.nb + " bins, " + fmt(tAn, 1) + " s");
   prog.hidden = true;
   setStatus("anaStatus", "ok", "Ready (" + fmt(tDec + tAn, 1) + " s to analyse).");
+  // The clip's own average bass spectrum (25-200 Hz), for the Frequency response plot.
+  { const { spec, nb, nHops, klo, sr } = S.an, out = [];
+    for (let b = 0; b < nb; b++) { const f = (klo + b) * sr / 8192; if (f < 25 || f > 200) continue; let s = 0; for (let h = 0; h < nHops; h++) s += spec[h * nb + b]; out.push([f, s / Math.max(1, nHops)]); }
+    S.clipSpec = out.length > 3 && out.some(q => q[1] > 0) ? out : null; }
+  drawRespond();
   paramsChanged("initial");
 }
 
@@ -265,7 +269,7 @@ function paramsChanged(why) {
   if (!E) { E = energyPerFrame(S.an, m.nFrames, m.fps, S.offsetSec, P.p, P.fMin); S.Ecache.set(key, E); }
   S.curve = synth(E, P, m.fps);
   // Detected bass for the plot (the INPUT): the 1/f^p-weighted energy, as an amplitude
-  // (square root of power), scaled to its own peak. Only "Respond to" changes it.
+  // (square root of power), scaled to its own peak. Only "Frequency response" changes it.
   { let mx = 0; for (let i = 0; i < E.length; i++) mx = Math.max(mx, E[i]); const b = new Float64Array(E.length); if (mx > 0) for (let i = 0; i < E.length; i++) b[i] = Math.sqrt(E[i] / mx); S.curve.bass = b; }
   const moving = S.curve.dy.reduce((n, v) => n + (Math.abs(v) > 1 ? 1 : 0), 0) / m.nFrames;
   const { w, h } = outputSize();

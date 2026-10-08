@@ -17,7 +17,7 @@ export const BLUR_MARK = 40;        // Motion blur slider: 0..40 = realistic shu
 export const CURVE = 1.5;           // power curve for the % sliders (50 % ~ a third of the range)
 export const WOBBLE = [["Fast", 15], ["Slow", 7.5]];   // Hz, by time (Ultra-slow 3.75 dropped BASSAPP-004: too slow to read as bass)
 
-// "Respond to" readout: in a typical mix, ~90 % of the bass energy the shake responds to
+// Frequency response range (no longer shown as a readout): in a typical mix, ~90 % of the bass energy the shake responds to
 // lies below this frequency. Measured on four real club mixes (the VIDEO project's EDIT 01-04
 // audio), Welch spectra 25-500 Hz, geometric mean across tracks; rounded to 5 Hz when shown.
 // An approximation for orientation only: the model is the 1/f^p weighting, unchanged.
@@ -25,7 +25,7 @@ const RESP_P = [0.7, 0.8, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5, 5.5, 6, 8, 10, 14, 
 const RESP_HZ = [111, 103, 90, 76, 64, 62, 56, 53, 51, 49, 48, 48, 45, 40, 39, 34, 31];
 export const RESP_PMAX = 20, RESP_PMIN = 0.7;
 // Typical-mix bass spectrum (power, peak 1), 25-200 Hz: geometric mean of the same four mixes' Welch
-// spectra. Only for the little "Respond to" plot (and consistent with the ~Hz readout).
+// spectra. Used by the Frequency response plot until a clip is loaded.
 export const TYPICAL_MIX = [[26.9,0.1],[32.3,0.415],[37.7,0.897],[43.1,1],[48.4,0.636],[53.8,0.469],[59.2,0.474],[64.6,0.436],[70,0.26],[75.4,0.259],[80.7,0.276],[86.1,0.213],[91.5,0.142],[96.9,0.121],[102.3,0.109],[107.7,0.0878],[113,0.0832],[118.4,0.0787],[123.8,0.117],[129.2,0.152],[134.6,0.118],[140,0.0693],[145.3,0.044],[150.7,0.039],[156.1,0.0399],[161.5,0.0333],[166.9,0.0301],[172.3,0.0284],[177.6,0.0268],[183,0.0241],[188.4,0.022],[193.8,0.027],[199.2,0.027]];
 export function respondHz(p) {
   if (p <= RESP_P[0]) return RESP_HZ[0];
@@ -79,12 +79,13 @@ export const ADVANCED = [
     toModel: ms => ({ decay: decayFromMs(ms) }),
     fromModel: P => msFromDecay(P.decay),
     show: ms => Math.round(ms) + " ms" },
-  { id: "respond", label: "Respond to", hint: "", min: 0, max: 100, step: 1, scale: ["sub only", "kick + bass"],
+  { id: "respond", label: "Frequency response", hint: "", min: 0, max: 100, step: 1, scale: ["sub only", "kick + bass"],
     // p on a log scale from 20 (~30 Hz, sub only) to 0.7 (~110 Hz, kick + bass); the shipped p = 4
     // sits near the middle (48 %). Range widened BASSAPP-004 (was p 6..1 = ~45..90 Hz).
     toModel: r => ({ p: Math.exp(Math.log(RESP_PMAX) + (Math.log(RESP_PMIN) - Math.log(RESP_PMAX)) * r / 100) }),
     fromModel: P => 100 * (Math.log(P.p) - Math.log(RESP_PMAX)) / (Math.log(RESP_PMIN) - Math.log(RESP_PMAX)),
-    show: (r, P) => "~" + 5 * Math.round(respondHz(P.p) / 5) + " Hz" },
+    // Shown as 0-100 % like the other sliders (BASSAPP-004); its plot shows what it means in Hz.
+    show: r => Math.round(r) + "%" },
   { id: "threshold", label: "Threshold", hint: "", min: 0, max: 60, step: 1, scale: ["off", "% of the loudest nearby"],
     toModel: v => ({ t: v / 100 }),
     fromModel: P => 100 * P.t,

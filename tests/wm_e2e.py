@@ -64,7 +64,7 @@ def main():
     n = min(len(off), len(on))
     diff = lambda i: np.abs(on[i].astype(np.int16) - off[i].astype(np.int16)).astype(np.float32)
     pxs = max(W, H) / 1920.0; follow = c["wm"]["shake"] / 100.0
-    spot_of = lambda i: sum(1 for f in moves if i >= f) % len(plan["at"])
+    spot_of = lambda i: sum(1 for f in moves if i >= f)          # segment index (plan["at"] is per segment)
     inside, outside, before = [], [], []
     for i in range(0, n):
         s = spot_of(i); p = plan["at"][s]; y = p["y"] + follow * c["dy"][i] * pxs

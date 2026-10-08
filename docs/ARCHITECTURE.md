@@ -61,15 +61,24 @@ e2e.py multiplies K by the page's gain before comparing with the reference.
 
 ## Watermark (watermark.js) — test build
 
-"@bass_shake_app", creator-style: white text, soft shadow, no box, no logo. Size = % of the output's
+"@bass_shake_app", creator-style: white text with a thin black outline (stroke 0.14 × font px) and a
+soft shadow, no box, no logo. Size = % of the output's
 SHORTER side (default 3.5 %), opacity default 70 %, "moves with picture" = fraction of the picture's dy
 (default 25 %). Behind an On/Off switch in Export (not tied to tiers yet).
 Plan (`planWatermark`, whole clip, so preview == export): visible from frame 0; moves every 5-8 s
 (target 6.5 s); a move lands on the bass hit (rise of the shake envelope `curve.amp`, at least 35 % of
 the clip's 95th-percentile rise) NEAREST the target, else on the target; no move in the last 2 s.
 Fade out 0.25 s, hidden switch-over (~0.05 s), fade in 0.2 s — plain smoothstep, nothing else.
-Spots cycle in a fixed order, never in corners: portrait (h ≥ 1.15 w) inside the 9:16 social safe zone
-(x 6-84 %, y 14-66 %); landscape/square with a plain margin. `tests/wm_sheet.py` makes a contact sheet
+Spots: a grid of candidates, never in corners — portrait (h ≥ 1.15 w): 3 × 5 inside the 9:16 social safe
+zone (x 6-84 %, y 14-66 %); landscape/square: 11 with a plain margin. **Spot finder** (`chooseSpots`):
+after the analysis, the page decodes small grey frames (144 px wide) once per second through the clip
+(`wmThumbs` in app.js, background, cached per clip). Per segment, each candidate's padded text box is
+scored over that segment's frames: clutter (mean |gradient| — busy picture, existing captions/graphics)
++ 0.35 × brightness above 110; mean + half the worst. Excluded: the previous spot and anything
+overlapping it (it always visibly moves), boxes touching letterbox bars (bands from an edge that are
+≥ 60 % near-black in ≥ 90 % of frames; a caption inside the bar is bridged). Recently used spots pay a
+small penalty (variety). No frames (finder failed) → a fixed spread. The finder decodes the whole clip
+once (in the headless test ~ as long as an export); measure on phones. `tests/wm_sheet.py` makes a contact sheet
 of real clips with the watermark drawn by the same code.
 
 ## Controls (controls.js)

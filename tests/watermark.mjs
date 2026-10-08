@@ -1,5 +1,5 @@
 // node tests/watermark.mjs — checks the watermark plan (js/watermark.js) on synthetic envelopes.
-import { planWatermark, placeText, spotsFor, SPOTS_VERTICAL, WM_EVERY, WM_MIN_TAIL } from "../js/watermark.js";
+import { planWatermark, placeText, spotsFor, SPOTS_VERTICAL, WM_EVERY, WM_MIN_TAIL, chooseSpots, boxFor, letterbox } from "../js/watermark.js";
 
 let fails = 0;
 const check = (ok, msg) => { console.log((ok ? "  ok   " : "  FAIL ") + msg); if (!ok) fails++; };
@@ -31,14 +31,14 @@ for (const fps of [30, 25, 60]) {
   { const hits = []; for (let t = 0.25; t < 40; t += 0.5) hits.push(t);
     const p = planWatermark(env(40, fps, hits), fps);
     const full = p.alpha.filter(v => v > 0.999).length / p.alpha.length;
-    let maxStep = 0; for (let i = 1; i < p.alpha.length; i++) if (p.spot[i] === p.spot[i - 1]) maxStep = Math.max(maxStep, Math.abs(p.alpha[i] - p.alpha[i - 1]));
+    let maxStep = 0; for (let i = 1; i < p.alpha.length; i++) if (p.seg[i] === p.seg[i - 1]) maxStep = Math.max(maxStep, Math.abs(p.alpha[i] - p.alpha[i - 1]));
     const zeroBefore = p.moves.every(m => p.alpha[m.frame - 1] < 0.02);
     const backAfter = p.moves.every(m => p.alpha[Math.min(p.alpha.length - 1, m.frame + Math.ceil(0.25 * fps))] > 0.99);
-    const switchHidden = p.moves.every(m => p.spot[m.frame] !== p.spot[m.frame - 1] && p.alpha[m.frame - 1] < 0.02);
+    const switchHidden = p.moves.every(m => p.seg[m.frame] !== p.seg[m.frame - 1] && p.alpha[m.frame - 1] < 0.02);
     check(full > 0.9, `visible at full strength ${(100 * full).toFixed(1)} % of frames`);
     check(zeroBefore && backAfter && switchHidden, "hidden on the frame before each move; spot changes only while hidden; back to full within 0.25 s");
     check(maxStep < 0.75, `fade steps per frame <= ${maxStep.toFixed(2)} (plain fade, no pop)`);
-    check(p.moves.every((m, k) => p.spot[m.frame] === (k + 1) % SPOTS_VERTICAL.length), "spots cycle in order, never the same twice running");
+    check(p.moves.every((m, k) => p.seg[m.frame] === k + 1), "each move starts the next segment");
     check(p.alpha[0] === 1, "visible from the very first frame");
     const lastMove = p.moves[p.moves.length - 1].frame / fps;
     check(40 - lastMove >= WM_MIN_TAIL, `no move in the last ${WM_MIN_TAIL} s (last at ${lastMove.toFixed(1)} s)`); }
@@ -56,6 +56,44 @@ for (const [w, h] of [[1080, 1920], [720, 1280], [1920, 1080], [1080, 1080], [11
   const safe = !vertical || at.every(p => p.x >= 0.05 * w && p.x + tw <= 0.85 * w && p.y - fs >= 0.13 * h && p.y <= 0.67 * h);
   const corner = at.some(p => (p.x < 0.15 * w || p.x + tw > 0.85 * w) && (p.y < 0.12 * h || p.y > 0.88 * h));
   check(inFrame && safe && !corner, `${w}x${h}: ${at.length} spots in frame${vertical ? ", in the 9:16 safe zone" : ""}, none in a corner`);
+}
+// 8. choosing spots on synthetic frames (144 x 256 grey thumbs, portrait)
+{
+  const W = 144, H = 256, cands = SPOTS_VERTICAL, tw = 0.30, ff = 0.035 * 1080 / 1920, asp = H / W;
+  const mk = (f) => { const g = new Uint8Array(W * H); for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) g[y * W + x] = f(x, y); return g; };
+  const rnd = (x, y) => ((Math.sin(x * 12.9898 + y * 78.233) * 43758.5453) % 1 + 1) % 1;
+  const inBox = (b, x, y) => x >= b[0] * W && x <= b[2] * W && y >= b[1] * H && y <= b[3] * H;
+  const boxes = cands.map(s => boxFor(s, tw, ff, asp));
+  // (a) mid-grey busy texture everywhere, except one calm dark patch around candidate 7 -> pick 7
+  { const b = boxes[7], g = mk((x, y) => inBox(b, x, y) ? 40 : 60 + 120 * rnd(x, y));
+    const th = [0.5, 1.5, 2.5].map(t => ({ t, g, w: W, h: H }));
+    const r = chooseSpots(cands, [[0, 3]], th, tw, ff, asp);
+    check(r.spots[0] === 7, `calm dark patch chosen (got ${r.spots[0]}, want 7)`); }
+  // (b) calm everywhere, but a caption (stripes of text-like edges) over candidate 7's area -> avoid it, and a bright half -> avoid
+  { const b = boxes[7], g = mk((x, y) => inBox(b, x, y) ? ((x >> 1) % 2 ? 250 : 20) : (x > W / 2 ? 235 : 70));
+    const th = [{ t: 0.5, g, w: W, h: H }];
+    const r = chooseSpots(cands, [[0, 1]], th, tw, ff, asp);
+    const bx = boxes[r.spots[0]];
+    check(r.spots[0] !== 7 && bx[2] * W <= W / 2 + 4, `caption and bright side avoided (got spot ${r.spots[0]}, box x ${(bx[0] * 100).toFixed(0)}-${(bx[2] * 100).toFixed(0)} %)`); }
+  // (c) letterbox: flat black top and bottom 22 %, picture between -> every chosen box inside the picture
+  { const g = mk((x, y) => (y < 0.22 * H || y > 0.78 * H) ? 0 : 80 + 100 * rnd(x, y));
+    const th = Array.from({ length: 30 }, (_, i) => ({ t: i + 0.5, g, w: W, h: H }));
+    const lb = letterbox(th);
+    const segs = Array.from({ length: 5 }, (_, k) => [6 * k, 6 * k + 6]);
+    const r = chooseSpots(cands, segs, th, tw, ff, asp);
+    const inside = r.spots.every(s => boxes[s][1] >= lb.top && boxes[s][3] <= lb.bottom);
+    check(Math.abs(lb.top - 0.22) < 0.01 && Math.abs(lb.bottom - 0.78) < 0.01 && inside, `letterbox found (${(100 * lb.top).toFixed(0)}-${(100 * lb.bottom).toFixed(0)} %), all ${r.spots.length} spots inside the picture`); }
+  // (d) uniform calm frames: the spot still moves every segment, never overlapping the previous one
+  { const g = mk(() => 60), th = Array.from({ length: 40 }, (_, i) => ({ t: i + 0.5, g, w: W, h: H }));
+    const segs = Array.from({ length: 6 }, (_, k) => [6.5 * k, 6.5 * k + 6.5]);
+    const r = chooseSpots(cands, segs, th, tw, ff, asp);
+    const ov = (a, b) => a[0] < b[2] && b[0] < a[2] && a[1] < b[3] && b[1] < a[3];
+    check(r.spots.every((s, k) => !k || (s !== r.spots[k - 1] && !ov(boxes[s], boxes[r.spots[k - 1]]))), `calm clip: moves every segment, no overlap (${r.spots.join(",")})`); }
+  // (e) no thumbs (spot finder failed): still moves, no overlaps
+  { const segs = Array.from({ length: 8 }, (_, k) => [k, k + 1]);
+    const r = chooseSpots(cands, segs, [], tw, ff, asp);
+    const ov = (a, b) => a[0] < b[2] && b[0] < a[2] && a[1] < b[3] && b[1] < a[3];
+    check(r.spots.every((s, k) => s >= 0 && (!k || !ov(boxes[s], boxes[r.spots[k - 1]]))), `no thumbs: fallback spots move without overlap (${r.spots.join(",")})`); }
 }
 console.log(fails ? `\nRESULT: FAIL (${fails})` : "\nRESULT: PASS");
 process.exit(fails ? 1 : 0);

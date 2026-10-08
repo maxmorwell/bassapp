@@ -3,7 +3,7 @@
 // sliders show vs the model values lives in controls.js (per-control tested).
 import { analyseAudio, energyPerFrame, synth, overscanFor, snapFps, blurRange, wobbleHz, displaySpectrum, bassShare, bassGain, bassPeakDb, levelGain, REF_H } from "./shake.js";
 import { MAIN, ADVANCED, ALL, UI_PRESETS, presetModel, sliderFor, WOBBLE, TYPICAL_MIX } from "./controls.js";
-import { WM_TEXT, WM_DEFAULTS, spotsFor, planWatermark, placeText, wmFont, drawWatermark } from "./watermark.js";
+import { WM_TEXT, WM_DEFAULTS, spotsFor, planWatermark, placeText, wmFont, drawWatermark, chooseSpots } from "./watermark.js";
 
 const log = window.log;
 const $ = id => document.getElementById(id);
@@ -23,7 +23,7 @@ try {
   setStatus("anaStatus", "bad", "The video library could not load. Please send feedback below with the report ticked.");
   throw e;
 }
-const { Input, Output, BlobSource, BufferTarget, Mp4OutputFormat, Conversion, ALL_FORMATS, AudioSampleSink, EncodedPacketSink, canEncodeVideo, canEncodeAudio, QUALITY_HIGH } = MB;
+const { Input, Output, BlobSource, BufferTarget, Mp4OutputFormat, Conversion, ALL_FORMATS, AudioSampleSink, EncodedPacketSink, CanvasSink, canEncodeVideo, canEncodeAudio, QUALITY_HIGH } = MB;
 
 // ---------------------------------------------------------------- state ----------
 const S = {
@@ -191,7 +191,7 @@ function syncOutSize() { for (const b of $("sizeSeg").children) b.setAttribute("
 // --------------------------------------------------------------- loading ---------
 $("file").addEventListener("change", async () => {
   const file = $("file").files[0];
-  S.file = file; S.meta = null; S.an = null; S.clipSpec = null; S.bassShare = null; S.bassPeak = null; S.bassGain = 1; S.Ecache.clear(); S.curve = null; S.out = null;
+  S.file = file; S.thumbsP = null; S.meta = null; S.an = null; S.clipSpec = null; S.bassShare = null; S.bassPeak = null; S.bassGain = 1; S.Ecache.clear(); S.curve = null; S.out = null;
   for (const id of ["shareBtn", "downloadBtn", "previewVid"]) $(id).hidden = true;
   $("previewBtn").disabled = $("exportBtn").disabled = true;
   for (const id of ["exportStatus", "saveStatus", "previewStatus", "anaStatus", "bassNote"]) setStatus(id, "", "");
@@ -276,6 +276,32 @@ async function analyse(aTrack, dur) {
   try { S.clipSpec = displaySpectrum(x, sr); } catch (e) { S.clipSpec = null; log("display spectrum failed: " + e.message); }
   drawRespond();
   paramsChanged("initial");
+  S.thumbsP = wmThumbs();          // watermark spot finder: small grey frames, once per clip, in the background
+}
+
+// Small grey frames every second through the clip, for choosing where the watermark goes (pictures
+// that are calm, not too bright, no existing text; not on letterbox bars). Cached per clip.
+const THUMB_W = 144;
+async function wmThumbs() {
+  const m = S.meta, file = S.file, t0 = performance.now(), out = [];
+  try {
+    const input = new Input({ source: new BlobSource(file), formats: ALL_FORMATS });
+    const v = await input.getPrimaryVideoTrack();
+    const tw = THUMB_W, th = Math.max(16, Math.round(THUMB_W * m.height / m.width));
+    const sink = new CanvasSink(v, { width: tw, height: th, fit: "fill", poolSize: 1 });
+    const times = []; for (let t = m.v0 + 0.5; t < m.dur; t += 1) times.push(t);
+    const cvs = new OffscreenCanvas(tw, th), g = cvs.getContext("2d", { willReadFrequently: true });
+    let k = 0;
+    for await (const wc of sink.canvasesAtTimestamps(times)) {
+      const t = times[k++]; if (!wc || S.file !== file) continue;
+      g.drawImage(wc.canvas, 0, 0, tw, th);
+      const d = g.getImageData(0, 0, tw, th).data, gr = new Uint8Array(tw * th);
+      for (let i = 0, j = 0; j < gr.length; i += 4, j++) gr[j] = (77 * d[i] + 150 * d[i + 1] + 29 * d[i + 2]) >> 8;
+      out.push({ t: t - m.v0, g: gr, w: tw, h: th });
+    }
+    log("watermark spot finder: " + out.length + " frames (" + tw + "x" + th + ") in " + fmt((performance.now() - t0) / 1000, 1) + " s");
+  } catch (e) { log("watermark spot finder failed (" + (e && e.message) + "): fixed spots instead"); }
+  return out;
 }
 
 async function logSupport() {
@@ -437,11 +463,17 @@ async function render({ trim, onProgress }) {
     try { await document.fonts.load(font, WM_TEXT); } catch (e) { log("watermark font load: " + e.message); }
     if (!document.fonts.check('500 20px "BS Watermark"', WM_TEXT)) log("watermark font NOT loaded: falling back to a system font");
     ctx.font = font;
-    const textW = ctx.measureText(WM_TEXT).width, spots = spotsFor(w, h);
-    const plan = planWatermark(cv.amp, m.fpsF, spots.length);
-    const at = spots.map(s => placeText(s, textW, fontPx, w, h));
+    const textW = ctx.measureText(WM_TEXT).width, cands = spotsFor(w, h);
+    const plan = planWatermark(cv.amp, m.fpsF);
+    const cuts = [0, ...plan.moves.map(mv => mv.frame / m.fpsF), m.dur];
+    const segTimes = cuts.slice(0, -1).map((a, k) => [a, cuts[k + 1]]);
+    const thumbs = await (S.thumbsP || (S.thumbsP = wmThumbs()));
+    const ch = chooseSpots(cands, segTimes, thumbs, textW / w, fontPx / h, h / w);
+    const at = ch.spots.map(si => placeText(cands[si], textW, fontPx, w, h));
     wm = { font, fontPx, plan, at, op: S.wm.opacity / 100, follow: S.wm.shake / 100 };
-    S.wmPlan = { moves: plan.moves, textW, fontPx, at, w, h };
+    S.wmPlan = { moves: plan.moves, textW, fontPx, at, spots: ch.spots, costs: ch.costs, letterbox: ch.lb, w, h };
+    if (ch.lb.top > 0 || ch.lb.bottom < 1 || ch.lb.left > 0 || ch.lb.right < 1) log("watermark: letterbox bars found, picture " + JSON.stringify(Object.fromEntries(Object.entries(ch.lb).map(([k, v]) => [k, +v.toFixed(3)]))));
+    log("watermark spots per segment: " + ch.spots.map((s, k) => s + " (" + fmt(ch.costs[k], 1) + ")").join(", "));
     log("watermark: " + WM_TEXT + ", " + fmt(fontPx, 1) + " px (" + fmt(S.wm.size, 1) + "% of short side), text " + fmt(textW, 0) + " px wide, opacity " + S.wm.opacity + "%, moves with picture " + S.wm.shake + "%, " +
       plan.moves.length + " moves at " + plan.moves.map(mv => fmt(mv.frame / m.fpsF, 1) + "s" + (mv.onHit ? "*" : "")).join(" ") + " (* = on a bass hit)");
   } else S.wmPlan = null;
@@ -494,7 +526,7 @@ async function render({ trim, onProgress }) {
           ctx.globalAlpha = 1;
         }
         if (wm && wm.plan.alpha[i] > 0.003) {
-          const p = wm.at[wm.plan.spot[i]];
+          const p = wm.at[wm.plan.seg[i]];
           drawWatermark(ctx, wm.font, wm.fontPx, p.x, p.y + wm.follow * dy, wm.op * wm.plan.alpha[i]);
         }
         frames++;

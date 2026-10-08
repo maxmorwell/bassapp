@@ -9,8 +9,8 @@ Exports the clip twice in headless Chromium — watermark Off, then On — and c
     must match (only encoder noise);
   - inside it, the text must be there while it is fully visible, and gone on the frame before
     each move (the hidden switch-over);
-  - the plan's moves are 5-8 s apart and none in the last 2 s;
-  - preview == export with the watermark ON (same plan for a trimmed render).
+  - the plan's moves are 8-12 s apart and none in the last 2 s;
+  - the preview has NO watermark (export only, Manager BASSAPP-006): it matches the watermark-OFF export.
 """
 import argparse, base64, json, os, sys, time
 import numpy as np
@@ -44,7 +44,7 @@ def main():
             p = os.path.join(a.out, "wm_%s.mp4" % label); open(p, "wb").write(base64.b64decode(pg.evaluate(B64, "export"))); outs[label] = p
         plan = pg.evaluate("() => window.__app.wmPlan")
         c = pg.evaluate("() => { const S = window.__app; return { dy: Array.from(S.curve.dy), fpsF: S.meta.fpsF, dur: S.meta.dur, wm: S.wm, ov: S.curve.overscan } }")
-        # preview with the watermark on, around the first move
+        # preview with the switch on, around the first move: must come out without the watermark
         mv0 = plan["moves"][0]["frame"] / c["fpsF"] if plan["moves"] else 1.0
         ps = max(0.0, mv0 - 1.5)
         pg.evaluate("v => { const e = document.getElementById('c_pstart'); e.value = v; e.dispatchEvent(new Event('input')); }", str(ps))
@@ -59,7 +59,7 @@ def main():
     moves = [m["frame"] for m in plan["moves"]]
     print("plan: %dx%d, font %.1f px, text %.0f px wide, moves at %s s" % (W, H, fs, tw, ", ".join("%.2f%s" % (f / fps, "*" if m["onHit"] else "") for f, m in zip(moves, plan["moves"]))))
     gaps = np.diff([0] + moves) / fps
-    if len(moves) == 0 or gaps.min() < 5 - 1e-6 or gaps.max() > 8 + 1e-6 or (c["dur"] - moves[-1] / fps) < 2: ok = False; print("FAIL move timing", gaps)
+    if len(moves) == 0 or gaps.min() < 8 - 1e-6 or gaps.max() > 12 + 1e-6 or (c["dur"] - moves[-1] / fps) < 2: ok = False; print("FAIL move timing", gaps)
     off = frames_gray(outs["off"], 0, 0, W, H); on = frames_gray(outs["on"], 0, 0, W, H)      # uint8: memory
     n = min(len(off), len(on))
     diff = lambda i: np.abs(on[i].astype(np.int16) - off[i].astype(np.int16)).astype(np.float32)
@@ -84,12 +84,12 @@ def main():
     if outside.max() > 2.5: ok = False; print("FAIL watermark leaks outside its box")
     if inside.min() < 8: ok = False; print("FAIL watermark missing on some fully visible frames")
     if any(v > 3 for v in before): ok = False; print("FAIL not hidden on the frame before a move")
-    # preview == export (watermark on)
+    # preview (switch on) == export WITHOUT watermark
     fp = frames_gray(pvp, 0, 0, W, H); k0 = int(round(ps * fps))
     mm = min(len(fp), n - k0 - 1)
-    res = {L: float(np.mean([np.abs(fp[i].astype(np.int16) - on[k0 + i + L].astype(np.int16)).mean() for i in range(0, mm, 2) if k0 + i + L >= 0])) for L in (-1, 0, 1)}
-    print("preview vs export (watermark on, across the first move): %.2f at the same frame (%.2f early, %.2f late)" % (res[0], res[-1], res[1]))
-    if not (res[0] < res[-1] and res[0] < res[1] and res[0] < 2.5): ok = False; print("FAIL preview != export")
+    res = {L: float(np.mean([np.abs(fp[i].astype(np.int16) - off[k0 + i + L].astype(np.int16)).mean() for i in range(0, mm, 2) if k0 + i + L >= 0])) for L in (-1, 0, 1)}
+    print("preview (switch on) vs export with watermark OFF, across the first move: %.2f at the same frame (%.2f early, %.2f late)" % (res[0], res[-1], res[1]))
+    if not (res[0] < res[-1] and res[0] < res[1] and res[0] < 2.5): ok = False; print("FAIL preview differs from the unwatermarked export (watermark in the preview?)")
     print("\nRESULT:", "PASS" if ok else "FAIL"); sys.exit(0 if ok else 1)
 
 

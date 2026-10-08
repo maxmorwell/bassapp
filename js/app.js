@@ -458,7 +458,7 @@ async function render({ trim, onProgress }) {
   const canvas = new OffscreenCanvas(w, h), ctx = canvas.getContext("2d");
   // Watermark: planned over the WHOLE clip (like the curve), so preview == export.
   let wm = null;
-  if (S.wm.on) {
+  if (S.wm.on && !trim) {          // export only: the preview has no watermark (Manager, BASSAPP-006)
     const { font, fontPx } = wmFont(S.wm.size, w, h);
     try { await document.fonts.load(font, WM_TEXT); } catch (e) { log("watermark font load: " + e.message); }
     if (!document.fonts.check('500 20px "BS Watermark"', WM_TEXT)) log("watermark font NOT loaded: falling back to a system font");
@@ -476,7 +476,7 @@ async function render({ trim, onProgress }) {
     log("watermark spots per segment: " + ch.spots.map((s, k) => s + " (" + fmt(ch.costs[k], 1) + ")").join(", "));
     log("watermark: " + WM_TEXT + ", " + fmt(fontPx, 1) + " px (" + fmt(S.wm.size, 1) + "% of short side), text " + fmt(textW, 0) + " px wide, opacity " + S.wm.opacity + "%, moves with picture " + S.wm.shake + "%, " +
       plan.moves.length + " moves at " + plan.moves.map(mv => fmt(mv.frame / m.fpsF, 1) + "s" + (mv.onHit ? "*" : "")).join(" ") + " (* = on a bass hit)");
-  } else S.wmPlan = null;
+  } else if (!trim) S.wmPlan = null;
   const src = new OffscreenCanvas(w, h), sctx = src.getContext("2d");
   let frames = 0, firstTs = null, tsShift = 0, maxDraws = 0, idxMin = Infinity, idxMax = -Infinity;
   const input = new Input({ source: new BlobSource(S.file), formats: ALL_FORMATS });

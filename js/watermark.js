@@ -4,25 +4,33 @@
 //
 // Agreed design (BASSAPP-006):
 //  - creator-style text only ("@bass_shake_app"), no logo / glyph, no backing box;
-//  - changes place now and then (~5-8 s), never in corners, always inside the 9:16 social
-//    safe zone (platform header at the top, captions at the bottom, buttons on the right);
+//  - changes place now and then (~8-12 s), along the edges/corners of the 9:16 social safe zone
+//    (platform header at the top, captions at the bottom, buttons on the right); calm spots, no text;
+//  - EXPORT only: the preview has no watermark (Manager);
 //  - moves with a short, plain fade (no effect), landing on a bass hit when one is close;
-//  - shakes a little with the picture (a fraction of the picture's movement).
+//  - can follow the picture's shake by a fraction (default 0: still text over moving video stands out).
 
 export const WM_TEXT = "@bass_shake_app";
-export const WM_DEFAULTS = { on: true, size: 3.5, opacity: 70, shake: 25 };   // size: % of the SHORT side
-export const WM_EVERY = [5, 8];          // seconds between moves (target = middle)
+export const WM_DEFAULTS = { on: true, size: 3.0, opacity: 55, shake: 0 };   // dialled down (Manager, BASSAPP-006)   // size: % of the SHORT side
+export const WM_EVERY = [8, 12];         // seconds between moves (target = middle); was 5-8, "too aggressive"
 export const WM_FADE_OUT = 0.25, WM_GAP = 0.05, WM_FADE_IN = 0.2;   // seconds
 export const WM_MIN_TAIL = 2;            // don't move if less than this is left of the clip
 
-// Candidate spots: [x, y, align] in fractions of the frame; y = text baseline. None in corners.
-// Portrait: inside the usual Reels / TikTok / Shorts safe zone, roughly x 6-84 %, y 14-66 %
-// (top ~14 % header, bottom ~1/3 captions + buttons, right ~15 % buttons).
-// Landscape / square: a plain margin; the four corner positions are left out.
-const grid = (xs, ys, skip = () => false) => ys.flatMap(y => xs.filter(([x, a]) => !skip(x, y)).map(([x, a]) => [x, y, a]));
-export const SPOTS_VERTICAL = grid([[0.07, "left"], [0.45, "center"], [0.83, "right"]], [0.20, 0.31, 0.42, 0.53, 0.64]);
-export const SPOTS_WIDE = grid([[0.06, "left"], [0.5, "center"], [0.94, "right"]], [0.15, 0.32, 0.5, 0.68, 0.86],
-  (x, y) => x !== 0.5 && (y === 0.15 || y === 0.86));
+// Candidate spots: [x, y, align] in fractions of the frame; y = text baseline. Edges and corners of the
+// safe area only, nothing in the middle (Manager: "gravitate towards edges and corners").
+// Portrait: the usual Reels / TikTok / Shorts safe zone, roughly x 6-84 %, y 14-66 % (top ~14 % header,
+// bottom ~1/3 captions + buttons, right ~15 % buttons) — its corners and edge midpoints.
+// Landscape / square: the same around a plain margin.
+export const SPOTS_VERTICAL = [
+  [0.07, 0.18, "left"], [0.45, 0.18, "center"], [0.83, 0.18, "right"],
+  [0.07, 0.42, "left"], [0.83, 0.42, "right"],
+  [0.07, 0.65, "left"], [0.45, 0.65, "center"], [0.83, 0.65, "right"],
+];
+export const SPOTS_WIDE = [
+  [0.05, 0.11, "left"], [0.5, 0.11, "center"], [0.95, 0.11, "right"],
+  [0.05, 0.52, "left"], [0.95, 0.52, "right"],
+  [0.05, 0.93, "left"], [0.5, 0.93, "center"], [0.95, 0.93, "right"],
+];
 // Portrait clips (9:16, 3:4, 4:5 ...) use the vertical safe zone: conservative for 4:5 / 3:4, which
 // the Reels viewer shows smaller than full screen, so the overlays cover less of them.
 export const spotsFor = (w, h) => (h >= 1.15 * w ? SPOTS_VERTICAL : SPOTS_WIDE);
@@ -180,6 +188,7 @@ export function chooseSpots(candidates, segTimes, thumbs, textWFrac, fontFrac, a
     let best = -1, bc = Infinity;
     candidates.forEach((s, i) => {
       if (prev >= 0 && (i === prev || overlaps(boxes[i], boxes[prev]))) return;
+      if (spots.length >= 2 && i === spots[spots.length - 2]) return;      // no ping-pong: not the one before last either
       let c;
       if (!ths.length) c = (i * 7 + k * 5) % candidates.length;            // no thumbs: deterministic spread
       else {

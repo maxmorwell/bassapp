@@ -15,7 +15,8 @@ for (const fps of [30, 25, 60]) {
   // 1. no hits: moves on the timer, every 6.5 s
   { const p = planWatermark(new Float64Array(60 * fps).fill(5), fps);
     const gaps = p.moves.map((m, k) => (m.frame - (k ? p.moves[k - 1].frame : 0)) / fps);
-    check(p.moves.length >= 7 && gaps.every(g => Math.abs(g - 6.5) < 0.05) && p.moves.every(m => !m.onHit), `steady clip: ${p.moves.length} timed moves, gaps ${gaps.map(g => g.toFixed(2)).join(",")}`); }
+    const mid = (WM_EVERY[0] + WM_EVERY[1]) / 2;
+    check(p.moves.length >= 4 && gaps.every(g => Math.abs(g - mid) < 0.05) && p.moves.every(m => !m.onHit), `steady clip: ${p.moves.length} timed moves, gaps ${gaps.map(g => g.toFixed(2)).join(",")}`); }
   // 2. hits every 0.5 s (kick): every move on a hit, gaps within 5-8 s
   { const hits = []; for (let t = 0.25; t < 60; t += 0.5) hits.push(t);
     const a = env(60, fps, hits), p = planWatermark(a, fps);
@@ -24,7 +25,7 @@ for (const fps of [30, 25, 60]) {
     check(p.moves.every(m => m.onHit) && onHit, `kick clip: all ${p.moves.length} moves land on a hit frame`);
     check(gaps.every(g => g >= WM_EVERY[0] - 1e-9 && g <= WM_EVERY[1] + 1e-9), `kick clip: gaps ${Math.min(...gaps).toFixed(2)}-${Math.max(...gaps).toFixed(2)} s within ${WM_EVERY}`); }
   // 3. a hit that is too weak (5 % of the big ones) is ignored
-  { const a = env(30, fps, [0.5, 1, 1.5, 2, 2.5]); const i0 = Math.round(6.2 * fps); a[i0] = 3.5;
+  { const a = env(30, fps, [0.5, 1, 1.5, 2, 2.5]); const i0 = Math.round(9.7 * fps); a[i0] = 3.5;
     const p = planWatermark(a, fps);
     check(!p.moves[0].onHit, `weak bump ignored (first move ${(p.moves[0].frame / fps).toFixed(2)} s, timed)`); }
   // 4. alpha: 1 most of the time, 0 just before each move, back up after; never jumps by > 0.6 per frame
@@ -54,8 +55,8 @@ for (const [w, h] of [[1080, 1920], [720, 1280], [1920, 1080], [1080, 1080], [11
   const inFrame = at.every(p => p.x >= 0 && p.x + tw <= w && p.y - fs >= 0 && p.y <= h);
   const vertical = h >= 1.15 * w;
   const safe = !vertical || at.every(p => p.x >= 0.05 * w && p.x + tw <= 0.85 * w && p.y - fs >= 0.13 * h && p.y <= 0.67 * h);
-  const corner = at.some(p => (p.x < 0.15 * w || p.x + tw > 0.85 * w) && (p.y < 0.12 * h || p.y > 0.88 * h));
-  check(inFrame && safe && !corner, `${w}x${h}: ${at.length} spots in frame${vertical ? ", in the 9:16 safe zone" : ""}, none in a corner`);
+  const middle = at.some(p => p.x > 0.2 * w && p.x + tw < 0.8 * w && p.y > 0.3 * h && p.y < 0.6 * h);
+  check(inFrame && safe && !middle, `${w}x${h}: ${at.length} spots in frame${vertical ? ", in the 9:16 safe zone" : ""}, none in the middle`);
 }
 // 8. choosing spots on synthetic frames (144 x 256 grey thumbs, portrait)
 {
@@ -88,7 +89,8 @@ for (const [w, h] of [[1080, 1920], [720, 1280], [1920, 1080], [1080, 1080], [11
     const segs = Array.from({ length: 6 }, (_, k) => [6.5 * k, 6.5 * k + 6.5]);
     const r = chooseSpots(cands, segs, th, tw, ff, asp);
     const ov = (a, b) => a[0] < b[2] && b[0] < a[2] && a[1] < b[3] && b[1] < a[3];
-    check(r.spots.every((s, k) => !k || (s !== r.spots[k - 1] && !ov(boxes[s], boxes[r.spots[k - 1]]))), `calm clip: moves every segment, no overlap (${r.spots.join(",")})`); }
+    check(r.spots.every((s, k) => !k || (s !== r.spots[k - 1] && !ov(boxes[s], boxes[r.spots[k - 1]]))), `calm clip: moves every segment, no overlap (${r.spots.join(",")})`);
+    check(r.spots.every((s, k) => k < 2 || s !== r.spots[k - 2]), "no ping-pong between two spots"); }
   // (e) no thumbs (spot finder failed): still moves, no overlaps
   { const segs = Array.from({ length: 8 }, (_, k) => [k, k + 1]);
     const r = chooseSpots(cands, segs, [], tw, ff, asp);

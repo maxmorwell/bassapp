@@ -62,24 +62,25 @@ e2e.py multiplies K by the page's gain before comparing with the reference.
 ## Watermark (watermark.js) — test build
 
 "@bass_shake_app", creator-style: white text with a thin black outline (stroke 0.14 × font px) and a
-soft shadow, no box, no logo. Size = % of the output's
-SHORTER side (default 3.5 %), opacity default 70 %, "moves with picture" = fraction of the picture's dy
-(default 25 %). Behind an On/Off switch in Export (not tied to tiers yet).
-Plan (`planWatermark`, whole clip, so preview == export): visible from frame 0; moves every 5-8 s
-(target 6.5 s); a move lands on the bass hit (rise of the shake envelope `curve.amp`, at least 35 % of
-the clip's 95th-percentile rise) NEAREST the target, else on the target; no move in the last 2 s.
-Fade out 0.25 s, hidden switch-over (~0.05 s), fade in 0.2 s — plain smoothstep, nothing else.
-Spots: a grid of candidates, never in corners — portrait (h ≥ 1.15 w): 3 × 5 inside the 9:16 social safe
-zone (x 6-84 %, y 14-66 %); landscape/square: 11 with a plain margin. **Spot finder** (`chooseSpots`):
-after the analysis, the page decodes small grey frames (144 px wide) once per second through the clip
-(`wmThumbs` in app.js, background, cached per clip). Per segment, each candidate's padded text box is
-scored over that segment's frames: clutter (mean |gradient| — busy picture, existing captions/graphics)
-+ 0.35 × brightness above 110; mean + half the worst. Excluded: the previous spot and anything
-overlapping it (it always visibly moves), boxes touching letterbox bars (bands from an edge that are
-≥ 60 % near-black in ≥ 90 % of frames; a caption inside the bar is bridged). Recently used spots pay a
-small penalty (variety). No frames (finder failed) → a fixed spread. The finder decodes the whole clip
-once (in the headless test ~ as long as an export); measure on phones. `tests/wm_sheet.py` makes a contact sheet
-of real clips with the watermark drawn by the same code.
+soft shadow, no box, no logo. **Export only** — the preview never has it. Behind an On/Off switch in
+Export (not tied to tiers yet). Defaults (dialled down, BASSAPP-006): size 3 % of the output's SHORTER
+side, opacity 55 %, "moves with picture" 0 % (still text over moving video stands out on its own).
+Plan (`planWatermark`, whole clip): visible from frame 0; moves every 8-12 s (target 10 s); a move lands
+on the bass hit (rise of the shake envelope `curve.amp`, ≥ 35 % of the clip's 95th-percentile rise)
+NEAREST the target, else on the target; no move in the last 2 s. Fade out 0.25 s, hidden switch-over
+(~0.05 s), fade in 0.2 s — plain smoothstep.
+Spots: edges and corners of the safe area only (8 candidates: 4 corners + 4 edge midpoints) — portrait
+(h ≥ 1.15 w): the 9:16 social safe zone (x 6-84 %, y 14-66 %); landscape/square: a plain margin.
+**Spot finder** (`chooseSpots`): after the analysis, the page decodes small grey frames (144 px wide)
+once per second through the clip (`wmThumbs` in app.js, background, cached per clip). Per segment, each
+candidate's padded text box is scored over that segment's frames: clutter (mean |gradient| — busy
+picture, existing captions/graphics) + 0.35 × brightness above 110; mean + half the worst. Excluded:
+the previous spot and anything overlapping it (it always visibly moves), boxes touching letterbox bars
+(bands from an edge that are ≥ 60 % near-black in ≥ 90 % of frames; a caption inside the bar is
+bridged). Recently used spots pay a small penalty (variety). No frames (finder failed) → a fixed
+spread. Faces: not detected (Manager: skin-tone heuristics problematic, extra processing to avoid).
+The finder decodes the whole clip once (headless: ~ as long as an export); measure on phones.
+`tests/wm_sheet.py` makes a contact sheet of real stills with the watermark drawn by the same code.
 
 ## Controls (controls.js)
 
@@ -102,7 +103,7 @@ python3 tests/make_synth.py        # synthetic e2e clips (+ nobass.webm) + tex.p
 python3 tests/e2e.py clip.webm ... # the page in headless Chromium (Playwright); --set id=value, --size 720p
 python3 tests/pixel_controls.py    # e2e under different settings; controls checked on rendered pixels (~6 min)
 node tests/watermark.mjs           # watermark plan: timing, hits, fades, spots, placement (~1 s)
-python3 tests/wm_e2e.py clip.webm  # watermark on vs off exports: only inside its box, hidden at switch-over, preview == export
+python3 tests/wm_e2e.py clip.webm  # watermark on vs off exports: only inside its box, hidden at switch-over, preview has none (use a ≥ 30 s clip)
 python3 tests/wm_sheet.py a.mp4 …  # contact sheet (not a test): watermark on real stills at several sizes/opacities
 ```
 

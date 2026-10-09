@@ -3,26 +3,25 @@
 // so the preview (a trimmed render) and the export look up the same plan and cannot differ.
 //
 // Agreed design (BASSAPP-006):
-//  - creator-style text only ("@bass_shake_app"), no logo / glyph, no backing box;
-//  - changes place now and then (~8-12 s), along the edges/corners of the 9:16 social safe zone
-//    (platform header at the top, captions at the bottom, buttons on the right); calm spots, no text;
+//  - creator-style text only ("@bass_shake_app"), no logo / glyph, no backing box; see-through letters;
+//  - ONE well-chosen corner of the 9:16 social safe zone for the whole clip (platform header at the top,
+//    captions at the bottom, buttons on the right): calm, not bright, clear of existing text, in the
+//    picture (not on letterbox bars). Optional "Moves" (test switch): every ~8-12 s, plain fade, on a
+//    bass hit when one is close;
 //  - EXPORT only: the preview has no watermark (Manager);
-//  - moves with a short, plain fade (no effect), landing on a bass hit when one is close;
 //  - can follow the picture's shake by a fraction (default 0: still text over moving video stands out).
 
 export const WM_TEXT = "@bass_shake_app";
-export const WM_DEFAULTS = { on: true, size: 3.0, opacity: 35, shake: 0, moves: false };   // dialled down; one place for the whole clip (Manager, BASSAPP-006)   // size: % of the SHORT side
+export const WM_DEFAULTS = { on: true, size: 3.0, opacity: 35, shake: 0, moves: false };   // size: % of the SHORT side; opacity: the letters (Manager, BASSAPP-006)
 export const WM_EVERY = [8, 12];         // seconds between moves (target = middle); was 5-8, "too aggressive"
 export const WM_FADE_OUT = 0.25, WM_GAP = 0.05, WM_FADE_IN = 0.2;   // seconds
 export const WM_MIN_TAIL = 2;            // don't move if less than this is left of the clip
 
-// Candidate spots: [x, y, align] in fractions of the frame; y = text baseline. Edges and corners of the
-// safe area only, nothing in the middle (Manager: "gravitate towards edges and corners").
-// Portrait: the usual Reels / TikTok / Shorts safe zone, roughly x 6-84 %, y 14-66 % (top ~14 % header,
-// bottom ~1/3 captions + buttons, right ~15 % buttons) — its corners and edge midpoints.
-// Landscape / square: the same around a plain margin.
-// Corners of the safe area only (Manager, BASSAPP-006 day 2: edge middles sat at face height — "too near
-// face"). Faces in phone clips are mostly in the middle band; the corners keep clear of it.
+// Candidate spots: [x, y, align] in fractions of the frame; y = text baseline. Corners of the safe area
+// only (Manager, BASSAPP-006: edge middles sat at face height — "too near face"; faces in phone clips are
+// mostly in the middle band). Portrait: the usual Reels / TikTok / Shorts safe zone, roughly x 6-84 %,
+// y 14-66 % (top ~14 % header, bottom ~1/3 captions + buttons, right ~15 % buttons). Landscape / square:
+// a plain margin. chooseSpots moves them into the picture's corners on letterboxed clips.
 export const SPOTS_VERTICAL = [
   [0.06, 0.17, "left"], [0.84, 0.17, "right"],
   [0.06, 0.66, "left"], [0.84, 0.66, "right"],

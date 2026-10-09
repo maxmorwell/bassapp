@@ -66,14 +66,14 @@ dark outline (stroke 0.14 × font px, outer half only) and soft shadow around th
 Drawn from two sprites made once per font (outline ring with the letters cut out + white letters),
 both at the letters' opacity. **Export only** — the preview never has it. Behind an On/Off switch in
 Export (not tied to tiers yet). Defaults (dialled down, BASSAPP-006): size 3 % of the output's SHORTER
-side, opacity 55 %, "moves with picture" 0 % (still text over moving video stands out on its own).
+side, letter opacity 35 % (chosen on 4 clips; one wanted 50 %), "moves with picture" 0 % (still text over moving video stands out on its own).
 Position: "One place" (default, BASSAPP-006 day 2) = one well-chosen spot for the whole clip, or
 "Moves". Plan (`planWatermark`, whole clip): visible from frame 0; when moving, every 8-12 s (target 10 s); a move lands
 on the bass hit (rise of the shake envelope `curve.amp`, ≥ 35 % of the clip's 95th-percentile rise)
 NEAREST the target, else on the target; no move in the last 2 s. Fade out 0.25 s, hidden switch-over
 (~0.05 s), fade in 0.2 s — plain smoothstep.
-Spots: pushed to the edges of the safe area, nothing central (6 candidates: 4 corners + middle of the
-left and right edges) — portrait
+Spots: the 4 corners of the safe area only (edge middles sat at face height) — moved into the
+PICTURE's corners when the clip is letterboxed (`chooseSpots` returns `places`) — portrait
 (h ≥ 1.15 w): the 9:16 social safe zone (x 6-84 %, y 14-66 %); landscape/square: a plain margin.
 **Spot finder** (`chooseSpots`): after the analysis, the page decodes small grey frames (144 px wide)
 once per second through the clip (`wmThumbs` in app.js, background, cached per clip). Per segment, each

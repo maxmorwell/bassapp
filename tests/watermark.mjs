@@ -67,25 +67,25 @@ for (const [w, h] of [[1080, 1920], [720, 1280], [1920, 1080], [1080, 1080], [11
   const rnd = (x, y) => ((Math.sin(x * 12.9898 + y * 78.233) * 43758.5453) % 1 + 1) % 1;
   const inBox = (b, x, y) => x >= b[0] * W && x <= b[2] * W && y >= b[1] * H && y <= b[3] * H;
   const boxes = cands.map(s => boxFor(s, tw, ff, asp));
-  // (a) mid-grey busy texture everywhere, except one calm dark patch around candidate 3 -> pick 3
-  { const b = boxes[3], g = mk((x, y) => inBox(b, x, y) ? 40 : 60 + 120 * rnd(x, y));
+  // (a) mid-grey busy texture everywhere, except one calm dark patch around candidate 2 -> pick 2
+  { const b = boxes[2], g = mk((x, y) => inBox(b, x, y) ? 40 : 60 + 120 * rnd(x, y));
     const th = [0.5, 1.5, 2.5].map(t => ({ t, g, w: W, h: H }));
     const r = chooseSpots(cands, [[0, 3]], th, tw, ff, asp);
-    check(r.spots[0] === 3, `calm dark patch chosen (got ${r.spots[0]}, want 3)`); }
-  // (b) calm everywhere, but a caption (stripes of text-like edges) over candidate 2's area (left middle) -> avoid it, and a bright right half -> avoid
-  { const b = boxes[2], g = mk((x, y) => inBox(b, x, y) ? ((x >> 1) % 2 ? 250 : 20) : (x > W / 2 ? 235 : 70));
+    check(r.spots[0] === 2, `calm dark patch chosen (got ${r.spots[0]}, want 2)`); }
+  // (b) calm everywhere, but a caption (stripes of text-like edges) over candidate 0's area (top left) -> avoid it, and a bright right half -> avoid
+  { const b = boxes[0], g = mk((x, y) => inBox(b, x, y) ? ((x >> 1) % 2 ? 250 : 20) : (x > W / 2 ? 235 : 70));
     const th = [{ t: 0.5, g, w: W, h: H }];
     const r = chooseSpots(cands, [[0, 1]], th, tw, ff, asp);
     const bx = boxes[r.spots[0]];
-    check(r.spots[0] !== 2 && bx[2] * W <= W / 2 + 4, `caption and bright side avoided (got spot ${r.spots[0]}, box x ${(bx[0] * 100).toFixed(0)}-${(bx[2] * 100).toFixed(0)} %)`); }
+    check(r.spots[0] !== 0 && bx[2] * W <= W / 2 + 4, `caption and bright side avoided (got spot ${r.spots[0]}, box x ${(bx[0] * 100).toFixed(0)}-${(bx[2] * 100).toFixed(0)} %)`); }
   // (c) letterbox: flat black top and bottom 22 %, picture between -> every chosen box inside the picture
   { const g = mk((x, y) => (y < 0.22 * H || y > 0.78 * H) ? 0 : 80 + 100 * rnd(x, y));
     const th = Array.from({ length: 30 }, (_, i) => ({ t: i + 0.5, g, w: W, h: H }));
     const lb = letterbox(th);
     const segs = Array.from({ length: 5 }, (_, k) => [6 * k, 6 * k + 6]);
     const r = chooseSpots(cands, segs, th, tw, ff, asp);
-    const inside = r.spots.every(s => boxes[s][1] >= lb.top && boxes[s][3] <= lb.bottom);
-    check(Math.abs(lb.top - 0.22) < 0.01 && Math.abs(lb.bottom - 0.78) < 0.01 && inside, `letterbox found (${(100 * lb.top).toFixed(0)}-${(100 * lb.bottom).toFixed(0)} %), all ${r.spots.length} spots inside the picture`); }
+    const inside = r.spots.every(s => r.boxes[s][1] >= lb.top && r.boxes[s][3] <= lb.bottom);
+    check(Math.abs(lb.top - 0.22) < 0.01 && Math.abs(lb.bottom - 0.78) < 0.01 && inside, `letterbox found (${(100 * lb.top).toFixed(0)}-${(100 * lb.bottom).toFixed(0)} %), all ${r.spots.length} spots inside the picture, corners moved into it (${r.spots.join(",")})`); }
   // (d) uniform calm frames: the spot still moves every segment, never overlapping the previous one
   { const g = mk(() => 60), th = Array.from({ length: 40 }, (_, i) => ({ t: i + 0.5, g, w: W, h: H }));
     const segs = Array.from({ length: 6 }, (_, k) => [6.5 * k, 6.5 * k + 6.5]);

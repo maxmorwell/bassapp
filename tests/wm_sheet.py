@@ -20,12 +20,12 @@ JS = """async ([src, w, h, size, op, spot, thumbs, segs, segk]) => {
   const ok = document.fonts.check('500 20px "BS Watermark"', W.WM_TEXT);
   g.font = font; const tw = g.measureText(W.WM_TEXT).width;
   const spots = W.spotsFor(w, h);
-  let si = spot % spots.length;
+  let si = spot % spots.length, places = spots;
   if (thumbs) {                                   // the page's spot finder on this clip's own frames
     const th = thumbs.map(o => ({ t: o.t, w: o.w, h: o.h, g: Uint8Array.from(atob(o.g), c => c.charCodeAt(0)) }));
-    si = W.chooseSpots(spots, segs, th, tw / w, fontPx / h, h / w).spots[segk];
+    const ch = W.chooseSpots(spots, segs, th, tw / w, fontPx / h, h / w); si = ch.spots[segk]; places = ch.places;
   }
-  const p = W.placeText(spots[si], tw, fontPx, w, h);
+  const p = W.placeText(places[si], tw, fontPx, w, h);
   W.drawWatermark(g, font, fontPx, p.x, p.y, op / 100);
   return { url: c.toDataURL('image/png'), ok };
 }"""

@@ -471,7 +471,7 @@ async function render({ trim, onProgress }) {
     const segTimes = cuts.slice(0, -1).map((a, k) => [a, cuts[k + 1]]);
     const thumbs = await (S.thumbsP || (S.thumbsP = wmThumbs()));
     const ch = chooseSpots(cands, segTimes, thumbs, textW / w, fontPx / h, h / w);
-    const at = ch.spots.map(si => placeText(cands[si], textW, fontPx, w, h));
+    const at = ch.spots.map(si => placeText(ch.places[si], textW, fontPx, w, h));
     wm = { font, fontPx, plan, at, op: S.wm.opacity / 100, follow: S.wm.shake / 100 };
     S.wmPlan = { moves: plan.moves, textW, fontPx, at, spots: ch.spots, costs: ch.costs, letterbox: ch.lb, w, h };
     if (ch.lb.top > 0 || ch.lb.bottom < 1 || ch.lb.left > 0 || ch.lb.right < 1) log("watermark: letterbox bars found, picture " + JSON.stringify(Object.fromEntries(Object.entries(ch.lb).map(([k, v]) => [k, +v.toFixed(3)]))));

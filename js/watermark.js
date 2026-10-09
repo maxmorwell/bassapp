@@ -11,7 +11,7 @@
 //  - can follow the picture's shake by a fraction (default 0: still text over moving video stands out).
 
 export const WM_TEXT = "@bass_shake_app";
-export const WM_DEFAULTS = { on: true, size: 3.0, opacity: 55, shake: 0, moves: false };   // dialled down; one place for the whole clip (Manager, BASSAPP-006)   // size: % of the SHORT side
+export const WM_DEFAULTS = { on: true, size: 3.0, opacity: 35, shake: 0, moves: false };   // dialled down; one place for the whole clip (Manager, BASSAPP-006)   // size: % of the SHORT side
 export const WM_EVERY = [8, 12];         // seconds between moves (target = middle); was 5-8, "too aggressive"
 export const WM_FADE_OUT = 0.25, WM_GAP = 0.05, WM_FADE_IN = 0.2;   // seconds
 export const WM_MIN_TAIL = 2;            // don't move if less than this is left of the clip
@@ -21,16 +21,14 @@ export const WM_MIN_TAIL = 2;            // don't move if less than this is left
 // Portrait: the usual Reels / TikTok / Shorts safe zone, roughly x 6-84 %, y 14-66 % (top ~14 % header,
 // bottom ~1/3 captions + buttons, right ~15 % buttons) — its corners and edge midpoints.
 // Landscape / square: the same around a plain margin.
-// Pushed out to the safe edges, nothing central (Manager, BASSAPP-006 day 2): the 4 corners of the safe
-// area and the middle of its left and right edges.
+// Corners of the safe area only (Manager, BASSAPP-006 day 2: edge middles sat at face height — "too near
+// face"). Faces in phone clips are mostly in the middle band; the corners keep clear of it.
 export const SPOTS_VERTICAL = [
   [0.06, 0.17, "left"], [0.84, 0.17, "right"],
-  [0.06, 0.42, "left"], [0.84, 0.42, "right"],
   [0.06, 0.66, "left"], [0.84, 0.66, "right"],
 ];
 export const SPOTS_WIDE = [
   [0.04, 0.10, "left"], [0.96, 0.10, "right"],
-  [0.04, 0.52, "left"], [0.96, 0.52, "right"],
   [0.04, 0.94, "left"], [0.96, 0.94, "right"],
 ];
 // Portrait clips (9:16, 3:4, 4:5 ...) use the vertical safe zone: conservative for 4:5 / 3:4, which
@@ -194,9 +192,13 @@ const overlaps = (a, b) => a[0] < b[2] && b[0] < a[2] && a[1] < b[3] && b[1] < a
 // Rule: a new spot never overlaps the previous one (it always visibly moves); among the rest, the
 // lowest cost over the thumbs in that segment (mean + half the worst, so a caption that appears
 // half-way still counts). Without thumbs: a fixed order that alternates sides.
-export function chooseSpots(candidates, segTimes, thumbs, textWFrac, fontFrac, aspect) {
-  const boxes = candidates.map(s => boxFor(s, textWFrac, fontFrac, aspect));
+export function chooseSpots(candidates0, segTimes, thumbs, textWFrac, fontFrac, aspect) {
   const lb = letterbox(thumbs);
+  // Letterboxed clip: move the corners into the PICTURE's corners (still inside the safe zone).
+  const candidates = candidates0.map(([x, y, a]) => [
+    Math.min(lb.right - 0.03, Math.max(lb.left + 0.03, x)),
+    Math.min(lb.bottom - 0.025 - 0.3 * fontFrac, Math.max(lb.top + 0.025 + fontFrac, y)), a]);
+  const boxes = candidates.map(s => boxFor(s, textWFrac, fontFrac, aspect));
   const inPicture = b => b[1] >= lb.top - 1e-9 && b[3] <= lb.bottom + 1e-9 && b[0] >= lb.left - 1e-9 && b[2] <= lb.right + 1e-9;
   const spots = [], costs = [];
   let prev = -1;
@@ -218,8 +220,9 @@ export function chooseSpots(candidates, segTimes, thumbs, textWFrac, fontFrac, a
       }
       if (c < bc) { bc = c; best = i; }
     });
-    if (best < 0) best = candidates.findIndex((s, i) => i !== prev);       // everything excluded: any other spot
+    if (best < 0) best = candidates.findIndex((s, i) => i !== prev && (!thumbs.length || inPicture(boxes[i])));   // everything excluded: any other spot
+    if (best < 0) best = Math.max(0, candidates.findIndex((s, i) => i !== prev));
     spots.push(best); costs.push(bc); prev = best;
   });
-  return { spots, costs, lb, boxes };
+  return { spots, costs, lb, boxes, places: candidates };   // places: the (letterbox-adjusted) spots to draw at
 }

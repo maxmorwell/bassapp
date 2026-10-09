@@ -109,6 +109,8 @@ python3 tests/pixel_controls.py    # e2e under different settings; controls chec
 node tests/watermark.mjs           # watermark plan: timing, hits, fades, spots, placement (~1 s)
 python3 tests/wm_e2e.py clip.webm  # watermark on vs off exports: only inside its box, hidden at switch-over, preview has none (use a ≥ 30 s clip)
 python3 tests/wm_sheet.py a.mp4 …  # contact sheet (not a test): watermark on real stills at several sizes/opacities
+python3 tests/render_clips.py SRC OUT [--set id=v]          # judge by eye: real clips exported through the page -> H.264 MP4s
+python3 tests/render_variants.py SRC OUT --control id --values a,b,c,d   # one control at 2 or 4 values, tiled + labelled
 ```
 
 **controls.mjs**: slider↔model round trips, monotonic "more effect to the right", presets,

@@ -35,6 +35,7 @@ def main():
         pg.set_input_files("#file", a.clip)
         pg.wait_for_function("document.getElementById('anaStatus').textContent.startsWith('Ready')", timeout=300000)
         if a.size: pg.click("#sizeSeg button:text-is('%s')" % a.size)
+        pg.click("#c_wmmove button[data-i='1']")      # "Moves": exercises the moves (default is one place)
         outs = {}
         for label, idx in (("off", 1), ("on", 0)):
             pg.click("#c_wm button[data-i='%d']" % idx)

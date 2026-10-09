@@ -11,7 +11,7 @@
 //  - can follow the picture's shake by a fraction (default 0: still text over moving video stands out).
 
 export const WM_TEXT = "@bass_shake_app";
-export const WM_DEFAULTS = { on: true, size: 3.0, opacity: 55, shake: 0 };   // dialled down (Manager, BASSAPP-006)   // size: % of the SHORT side
+export const WM_DEFAULTS = { on: true, size: 3.0, opacity: 55, shake: 0, moves: false };   // dialled down; one place for the whole clip (Manager, BASSAPP-006)   // size: % of the SHORT side
 export const WM_EVERY = [8, 12];         // seconds between moves (target = middle); was 5-8, "too aggressive"
 export const WM_FADE_OUT = 0.25, WM_GAP = 0.05, WM_FADE_IN = 0.2;   // seconds
 export const WM_MIN_TAIL = 2;            // don't move if less than this is left of the clip
@@ -21,15 +21,17 @@ export const WM_MIN_TAIL = 2;            // don't move if less than this is left
 // Portrait: the usual Reels / TikTok / Shorts safe zone, roughly x 6-84 %, y 14-66 % (top ~14 % header,
 // bottom ~1/3 captions + buttons, right ~15 % buttons) — its corners and edge midpoints.
 // Landscape / square: the same around a plain margin.
+// Pushed out to the safe edges, nothing central (Manager, BASSAPP-006 day 2): the 4 corners of the safe
+// area and the middle of its left and right edges.
 export const SPOTS_VERTICAL = [
-  [0.07, 0.18, "left"], [0.45, 0.18, "center"], [0.83, 0.18, "right"],
-  [0.07, 0.42, "left"], [0.83, 0.42, "right"],
-  [0.07, 0.65, "left"], [0.45, 0.65, "center"], [0.83, 0.65, "right"],
+  [0.06, 0.17, "left"], [0.84, 0.17, "right"],
+  [0.06, 0.42, "left"], [0.84, 0.42, "right"],
+  [0.06, 0.66, "left"], [0.84, 0.66, "right"],
 ];
 export const SPOTS_WIDE = [
-  [0.05, 0.11, "left"], [0.5, 0.11, "center"], [0.95, 0.11, "right"],
-  [0.05, 0.52, "left"], [0.95, 0.52, "right"],
-  [0.05, 0.93, "left"], [0.5, 0.93, "center"], [0.95, 0.93, "right"],
+  [0.04, 0.10, "left"], [0.96, 0.10, "right"],
+  [0.04, 0.52, "left"], [0.96, 0.52, "right"],
+  [0.04, 0.94, "left"], [0.96, 0.94, "right"],
 ];
 // Portrait clips (9:16, 3:4, 4:5 ...) use the vertical safe zone: conservative for 4:5 / 3:4, which
 // the Reels viewer shows smaller than full screen, so the overlays cover less of them.
@@ -47,14 +49,14 @@ export function hitStrength(amp) {
 // The plan: move frames, and per frame { segment index, alpha 0..1 }. Segment k runs from move k-1
 // (or the start) to move k; WHICH spot each segment uses is chosen separately (chooseSpots).
 // amp: the shake envelope per frame (curve.amp); fpsF: frames per second.
-export function planWatermark(amp, fpsF) {
+export function planWatermark(amp, fpsF, moves_ = true) {
   const n = amp.length, on = hitStrength(amp);
   // A "hit" must be a real jump: at least 35 % of the clip's typical big jump (95th percentile).
   const pos = Array.from(on).filter(v => v > 0).sort((a, b) => a - b);
   const thr = pos.length ? 0.35 * pos[Math.min(pos.length - 1, Math.floor(0.95 * pos.length))] : Infinity;
   const moves = [];                       // { frame, onHit }
   let last = 0;
-  for (;;) {
+  for (; moves_;) {
     const a = Math.round(last + WM_EVERY[0] * fpsF), b = Math.round(last + WM_EVERY[1] * fpsF);
     const target = Math.round(last + (WM_EVERY[0] + WM_EVERY[1]) / 2 * fpsF);
     if (target > n - 1 - WM_MIN_TAIL * fpsF) break;
@@ -103,18 +105,34 @@ export function wmFont(size, w, h) {
   const fontPx = Math.max(10, size / 100 * Math.min(w, h));
   return { fontPx, font: "500 " + fontPx.toFixed(1) + 'px "BS Watermark", "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif' };
 }
-// Draw the handle: white with a thin black outline and soft shadow, no box.
-export const WM_OUTLINE = 0.14;   // stroke width / font px (half of it shows outside the letters) Shared by the renderer and the contact sheet.
+// Draw the handle: translucent white letters with a thin dark outline and soft shadow AROUND them, no box.
+// Built as two sprites (once per font): the outline ring + shadow with the letter shapes cut OUT of it, and
+// the white letters. So the video shows through the letters themselves — they read as see-through white,
+// not as a grey shape on top (Manager, BASSAPP-006: earlier the fill sat on the black stroke = solid grey).
+export const WM_OUTLINE = 0.14;   // stroke width / font px (only the half outside the letters shows)
+export const WM_RING = 1.0;       // outline/shadow strength relative to the letters' opacity
+const sprites = new Map();
+function wmSprites(font, fontPx) {
+  let s = sprites.get(font); if (s) return s;
+  const probe = new OffscreenCanvas(8, 8).getContext("2d"); probe.font = font;
+  const tw = Math.ceil(probe.measureText(WM_TEXT).width), pad = Math.ceil(0.5 * fontPx);
+  const W = tw + 2 * pad, H = Math.ceil(1.6 * fontPx) + 2 * pad, bx = pad, by = pad + Math.ceil(1.1 * fontPx);
+  const mk = () => { const c = new OffscreenCanvas(W, H), g = c.getContext("2d"); g.font = font; g.textBaseline = "alphabetic"; g.textAlign = "left"; return [c, g]; };
+  const [ring, rg] = mk();
+  rg.lineJoin = "round"; rg.miterLimit = 2; rg.lineWidth = WM_OUTLINE * fontPx; rg.strokeStyle = "#000";
+  rg.shadowColor = "rgba(0,0,0,0.5)"; rg.shadowBlur = 0.18 * fontPx; rg.shadowOffsetY = 0.04 * fontPx;
+  rg.strokeText(WM_TEXT, bx, by);
+  rg.shadowColor = "transparent"; rg.globalCompositeOperation = "destination-out"; rg.fillStyle = "#000"; rg.fillText(WM_TEXT, bx, by);
+  const [fill, fg] = mk(); fg.fillStyle = "#fff"; fg.fillText(WM_TEXT, bx, by);
+  s = { ring, fill, bx, by }; sprites.set(font, s); return s;
+}
+// x, y: left of the text and its baseline (as placeText gives). alpha: the letters' opacity (0..1).
 export function drawWatermark(ctx, font, fontPx, x, y, alpha) {
+  const s = wmSprites(font, fontPx);
   ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.globalAlpha = alpha;
-  ctx.font = font; ctx.textBaseline = "alphabetic"; ctx.textAlign = "left";
-  // Black outline (Manager: "helps everywhere") with a soft shadow under it, then the white fill.
-  ctx.lineJoin = "round"; ctx.miterLimit = 2; ctx.lineWidth = WM_OUTLINE * fontPx; ctx.strokeStyle = "#000";
-  ctx.shadowColor = "rgba(0,0,0,0.5)"; ctx.shadowBlur = 0.18 * fontPx; ctx.shadowOffsetY = 0.04 * fontPx;
-  ctx.strokeText(WM_TEXT, x, y);
-  ctx.shadowColor = "transparent"; ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
-  ctx.fillStyle = "#fff"; ctx.fillText(WM_TEXT, x, y);
+  const X = Math.round(x - s.bx), Y = Math.round(y - s.by);           // whole pixels: no resampling blur
+  ctx.globalAlpha = Math.min(1, alpha * WM_RING); ctx.drawImage(s.ring, X, Y);
+  ctx.globalAlpha = alpha; ctx.drawImage(s.fill, X, Y);
   ctx.globalAlpha = 1;
 }
 

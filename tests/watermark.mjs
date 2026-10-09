@@ -44,6 +44,8 @@ for (const fps of [30, 25, 60]) {
     const lastMove = p.moves[p.moves.length - 1].frame / fps;
     check(40 - lastMove >= WM_MIN_TAIL, `no move in the last ${WM_MIN_TAIL} s (last at ${lastMove.toFixed(1)} s)`); }
 }
+// 4b. one place for the whole clip (Manager, BASSAPP-006): no moves, always fully visible
+{ const p = planWatermark(new Float64Array(1800).fill(5), 30, false); check(p.moves.length === 0 && p.alpha.every(v => v === 1) && p.seg.every(v => v === 0), "one-place mode: no moves, one segment, always visible"); }
 // 5. short clip (4 s): never moves
 { const p = planWatermark(new Float64Array(120).fill(5), 30); check(p.moves.length === 0 && p.alpha.every(v => v === 1), "4 s clip: no moves, always visible"); }
 // 6. silent clip (all zero): timed moves, no NaN
@@ -65,17 +67,17 @@ for (const [w, h] of [[1080, 1920], [720, 1280], [1920, 1080], [1080, 1080], [11
   const rnd = (x, y) => ((Math.sin(x * 12.9898 + y * 78.233) * 43758.5453) % 1 + 1) % 1;
   const inBox = (b, x, y) => x >= b[0] * W && x <= b[2] * W && y >= b[1] * H && y <= b[3] * H;
   const boxes = cands.map(s => boxFor(s, tw, ff, asp));
-  // (a) mid-grey busy texture everywhere, except one calm dark patch around candidate 7 -> pick 7
-  { const b = boxes[7], g = mk((x, y) => inBox(b, x, y) ? 40 : 60 + 120 * rnd(x, y));
+  // (a) mid-grey busy texture everywhere, except one calm dark patch around candidate 3 -> pick 3
+  { const b = boxes[3], g = mk((x, y) => inBox(b, x, y) ? 40 : 60 + 120 * rnd(x, y));
     const th = [0.5, 1.5, 2.5].map(t => ({ t, g, w: W, h: H }));
     const r = chooseSpots(cands, [[0, 3]], th, tw, ff, asp);
-    check(r.spots[0] === 7, `calm dark patch chosen (got ${r.spots[0]}, want 7)`); }
-  // (b) calm everywhere, but a caption (stripes of text-like edges) over candidate 7's area -> avoid it, and a bright half -> avoid
-  { const b = boxes[7], g = mk((x, y) => inBox(b, x, y) ? ((x >> 1) % 2 ? 250 : 20) : (x > W / 2 ? 235 : 70));
+    check(r.spots[0] === 3, `calm dark patch chosen (got ${r.spots[0]}, want 3)`); }
+  // (b) calm everywhere, but a caption (stripes of text-like edges) over candidate 2's area (left middle) -> avoid it, and a bright right half -> avoid
+  { const b = boxes[2], g = mk((x, y) => inBox(b, x, y) ? ((x >> 1) % 2 ? 250 : 20) : (x > W / 2 ? 235 : 70));
     const th = [{ t: 0.5, g, w: W, h: H }];
     const r = chooseSpots(cands, [[0, 1]], th, tw, ff, asp);
     const bx = boxes[r.spots[0]];
-    check(r.spots[0] !== 7 && bx[2] * W <= W / 2 + 4, `caption and bright side avoided (got spot ${r.spots[0]}, box x ${(bx[0] * 100).toFixed(0)}-${(bx[2] * 100).toFixed(0)} %)`); }
+    check(r.spots[0] !== 2 && bx[2] * W <= W / 2 + 4, `caption and bright side avoided (got spot ${r.spots[0]}, box x ${(bx[0] * 100).toFixed(0)}-${(bx[2] * 100).toFixed(0)} %)`); }
   // (c) letterbox: flat black top and bottom 22 %, picture between -> every chosen box inside the picture
   { const g = mk((x, y) => (y < 0.22 * H || y > 0.78 * H) ? 0 : 80 + 100 * rnd(x, y));
     const th = Array.from({ length: 30 }, (_, i) => ({ t: i + 0.5, g, w: W, h: H }));

@@ -61,15 +61,19 @@ e2e.py multiplies K by the page's gain before comparing with the reference.
 
 ## Watermark (watermark.js) — test build
 
-"@bass_shake_app", creator-style: white text with a thin black outline (stroke 0.14 × font px) and a
-soft shadow, no box, no logo. **Export only** — the preview never has it. Behind an On/Off switch in
+"@bass_shake_app", creator-style: see-through white letters (the video shows through them) with a thin
+dark outline (stroke 0.14 × font px, outer half only) and soft shadow around them; no box, no logo.
+Drawn from two sprites made once per font (outline ring with the letters cut out + white letters),
+both at the letters' opacity. **Export only** — the preview never has it. Behind an On/Off switch in
 Export (not tied to tiers yet). Defaults (dialled down, BASSAPP-006): size 3 % of the output's SHORTER
 side, opacity 55 %, "moves with picture" 0 % (still text over moving video stands out on its own).
-Plan (`planWatermark`, whole clip): visible from frame 0; moves every 8-12 s (target 10 s); a move lands
+Position: "One place" (default, BASSAPP-006 day 2) = one well-chosen spot for the whole clip, or
+"Moves". Plan (`planWatermark`, whole clip): visible from frame 0; when moving, every 8-12 s (target 10 s); a move lands
 on the bass hit (rise of the shake envelope `curve.amp`, ≥ 35 % of the clip's 95th-percentile rise)
 NEAREST the target, else on the target; no move in the last 2 s. Fade out 0.25 s, hidden switch-over
 (~0.05 s), fade in 0.2 s — plain smoothstep.
-Spots: edges and corners of the safe area only (8 candidates: 4 corners + 4 edge midpoints) — portrait
+Spots: pushed to the edges of the safe area, nothing central (6 candidates: 4 corners + middle of the
+left and right edges) — portrait
 (h ≥ 1.15 w): the 9:16 social safe zone (x 6-84 %, y 14-66 %); landscape/square: a plain margin.
 **Spot finder** (`chooseSpots`): after the analysis, the page decodes small grey frames (144 px wide)
 once per second through the clip (`wmThumbs` in app.js, background, cached per clip). Per segment, each
